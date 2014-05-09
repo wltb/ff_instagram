@@ -1,7 +1,20 @@
 ff_Instagram
 ============
 
-Plugin for Tiny Tiny RSS that allows to fetch data from Instagram user sites.
+Plugin for [Tiny Tiny RSS](https://github.com/gothfox/Tiny-Tiny-RSS) that allows to fetch data from Instagram user sites.
+
+## Installation
+This should be done on the command line
+
+```sh
+$ cd /your/path/to/ttrss/plugins
+$ git clone https://github.com/wltb/ff_instagram
+```
+
+Alternatively, you can download the zip archive and unzip it into the *plugins* subdirectory of your Tiny Tiny RSS installation.
+Note that the directory containing *init.php* **must** be named *ff_instagram*, otherwise Tiny Tiny RSS won't load the plugin, so you may have to rename it after the unzipping.
+
+After that, the plugin must be enabled in the preferences of Tiny Tiny RSS.
 
 ##Subscribing 
 The plugin needs an existing feed in Tiny Tiny RSS. If you have none, you can subscribe to a dummy feed
