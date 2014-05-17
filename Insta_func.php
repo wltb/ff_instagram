@@ -9,15 +9,14 @@ namespace Insta;
 */
 
 /*
-	* Takes an URL and tries to extract a serialzed JSON from its content.
+	* Takes a webpage and tries to extract a serialzed JSON from its content.
 	* Most likely only works on Instagram webpages.
 	*
-	* @param string $url    Should be an Instagram URL
+	* @param string $html    Should be an Instagram page
 	*
 	* @return array    deserialized JSON
 */
-function extract_Insta_JSON($url) {
-	$html = file_get_contents($url);
+function extract_Insta_JSON($html) {
 	$doc = new \DOMDocument();
 	libxml_use_internal_errors(true);
 	$doc->loadHTML($html);
