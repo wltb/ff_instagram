@@ -16,8 +16,10 @@ Note that the directory containing *init.php* **must** be named *ff_instagram*, 
 
 After that, the plugin must be enabled in the preferences of Tiny Tiny RSS.
 
-##Subscribing 
-The plugin needs an existing feed in Tiny Tiny RSS. If you have none, you can subscribe to a dummy feed
+##Subscribing
+With latest trunk or version >= 1.13 of Tiny Tiny RSS it is possible to subscribe directly to instagram URLs.
+For older versions of Tiny Tiny RSS, this plugin needs an existing feed in Tiny Tiny RSS.
+If you have none, you can subscribe to a dummy feed
 with the content
 
 `````
