@@ -19,30 +19,42 @@ class ff_Instagram extends Plugin
 	}
 
 	function init($host) {
-		$host->add_hook($host::HOOK_FETCH_FEED, $this);
 		if (version_compare(VERSION_STATIC, '1.12', '<=') && VERSION_STATIC === VERSION){
-			user_error('Subscribe hook not registered. Needs trunk or at version > 1.12', E_USER_NOTICE);
+			user_error('Hooks not registered. Needs trunk or version > 1.12', E_USER_NOTICE);
 			return;
 		}
-
+		$host->add_hook($host::HOOK_FETCH_FEED, $this);
 		$host->add_hook($host::HOOK_SUBSCRIBE_FEED, $this);
 	}
 
-	function create_feed($content, $url) {
-		$json = Insta\extract_Insta_JSON($content);
+
+	function create_feed($url, $timestamp) {
+		$json = Insta\extract_Insta_JSON($url);
 		#var_dump($json);
+
 		$feed = new RSSGenerator\Feed();
 		$feed->link($url);
 		$feed->title(sprintf("%s / Instagram", Insta\get_Insta_username($json)));
 
-		foreach(Insta\get_Insta_user_data($json) as $post) {
-			/*unset($post["comments"]);
-			unset($post["likes"]);
-			var_dump($post);
-			*/
-			$item = Insta\convert_Insta_data_to_RSS($post);
-			#var_dump($item);
-			$feed->new_item($item);
+		$loop_func = function($json) use ($feed) {
+			foreach($json as $post) {
+				/*unset($post["comments"]);
+				unset($post["likes"]);
+				var_dump($post);
+				*/
+
+				$item = Insta\convert_Insta_data_to_RSS($post);
+				#var_dump($item);
+				$feed->new_item($item);
+			}
+		};
+
+		if($timestamp === false && isset($this->Insta_client_id)) {
+			Insta\Insta_API_user_recent(Insta\get_Insta_user_id($json),
+				$this->Insta_client_id, $loop_func);
+		}
+		else {
+			$loop_func(Insta\get_Insta_user_data($json));
 		}
 
 		return $feed->saveXML();
@@ -52,14 +64,18 @@ class ff_Instagram extends Plugin
 		if(preg_match('%^http://instagram.com/\w+#?$%i',  $url) !== 1)
 			return $contents;
 
-		return $this->create_feed($contents, $url);
+		return '<rss version="2.0"><channel/></rss>';
 	}
 
-	function hook_fetch_feed($feed_data, $fetch_url) {
+	function hook_fetch_feed($feed_data, $fetch_url, $owner_uid, $feed, $timestamp) {
 		if(preg_match('%^http://instagram.com/\w+#?$%i',  $fetch_url) !== 1 || $feed_data)
 			return $feed_data;
 
-		return $this->create_feed(file_get_contents($fetch_url), $fetch_url);
+		try {
+			return $this->create_feed($fetch_url, $timestamp);
+		} catch (Exception $e) {
+			user_error("Error for '$fetch_url': " . $e->getMessage());
+		}
 	}
 
 }
