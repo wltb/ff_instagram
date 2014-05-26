@@ -13,7 +13,7 @@ namespace RSSGenerator;
 Doesn't check if the final XML confirms to RSS specifications,
 e.g. format of the element texts or required elements.
 
-Throws a DOMException if a paramter text can't be stored in a DOMText node.
+Throws a DOMException if a parameter text can't be stored in a DOMText node.
 */
 
 /*
@@ -46,7 +46,7 @@ class Feed
 	}
 
 	function set_feed_elements($ar) {
-		foreach(array('link', 'title', 'description') as $elem) #, 'category'
+		foreach(array('link', 'title', 'description', 'url') as $elem) #, 'category'
 			if(isset($ar[$elem]))
 				$this->$elem($ar[$elem]);
 	}
@@ -87,6 +87,10 @@ class Feed
 
 	function link($text) {
 		$this->factory_singleton($text, 'link');
+	}
+
+	function url($text) {
+		$this->link($text);
 	}
 
 	function new_item($ar=array()) {
@@ -143,8 +147,8 @@ class FeedItem {
 		that shouldn't be called in the constructor,
 		put them in the array right below.
 		*/
-		foreach(array('__construct') as $non_elems) {
-			$key = array_search($non_elems, self::$methods);
+		foreach(array('__construct') as $non_elem) {
+			$key = array_search($non_elem, self::$methods);
     		unset(self::$methods[$key]);
     	}
 	}
@@ -192,6 +196,10 @@ class FeedItem {
 
 	function date($text) {
 		$this->pubDate($text);
+	}
+
+	function url($text) {
+		$this->link($text);
 	}
 
 	/*
