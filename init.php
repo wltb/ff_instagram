@@ -1,6 +1,7 @@
 <?php
 
-include_once 'RSSGenerator.php';
+if(!class_exists('RSSGenerator\Feed'))
+	include 'RSSGenerator.php';
 include 'Insta_func.php';
 
 class ff_Instagram extends Plugin
@@ -8,7 +9,7 @@ class ff_Instagram extends Plugin
 	function about() {
 		return array(
 			1.0, // version
-			'Gnerates feeds from Instagram URLs', // description
+			'Generates feeds from Instagram URLs', // description
 			'feader', // author
 			false, // is_system
 		);
