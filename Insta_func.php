@@ -32,6 +32,8 @@ function extract_Insta_JSON($url) {
 	#echo $json;
 
 	$a = json_decode($json, true);
+	if($a === NULL)
+		throw new \Exception("Couldn't extract json data on '$url'");
 	return $a["entry_data"]["UserProfile"][0];
 }
 
