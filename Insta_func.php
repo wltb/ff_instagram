@@ -20,9 +20,10 @@ function extract_Insta_JSON($url) {
 	$doc = new \DOMDocument();
 	libxml_use_internal_errors(true);
 	$doc->loadHTMLFile($url);
+	#echo $doc->saveXML();
 
 	$xpath = new \DOMXPath($doc);
-	$js = $xpath->query('//body/script')->item(1)->nodeValue;
+	$js = $xpath->query('//body/script[@type="text/javascript"]')->item(1)->nodeValue;
 
 	#var_dump($js);
 
