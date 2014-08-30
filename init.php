@@ -62,14 +62,14 @@ class ff_Instagram extends Plugin
 	}
 
 	function hook_subscribe_feed($contents, $url) {
-		if(preg_match('%^http://instagram.com/\w+#?$%i',  $url) !== 1)
+		if(preg_match('%^http://instagram.com/[\w.]+#?$%i',  $url) !== 1)
 			return $contents;
 
 		return '<rss version="2.0"><channel/></rss>';
 	}
 
 	function hook_fetch_feed($feed_data, $fetch_url, $owner_uid, $feed, $timestamp) {
-		if(preg_match('%^http://instagram.com/\w+#?$%i',  $fetch_url) !== 1 || $feed_data)
+		if(preg_match('%^http://instagram.com/[\w.]+#?$%i',  $fetch_url) !== 1 || $feed_data)
 			return $feed_data;
 
 		try {

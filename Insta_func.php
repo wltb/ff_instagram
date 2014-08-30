@@ -157,12 +157,12 @@ function convert_Insta_data_to_RSS($entry) {
 	if($caption) {
 		#heuristic: Supposes that all @xyz strings are Instagram references
 		# and turns them into hyperlinks
-		$caption = preg_replace('/@(\w+)/', '<a href="http://instagram.com/$1">@$1</a>', $caption);
+		$caption = preg_replace('/(?<=\s|\A)@([\w.]+)(?=\s|\z)/', '<a href="http://instagram.com/$1">@$1</a>', $caption);
 		$item["content"] .= sprintf("<p>%s</p>", $caption);
+		$item["content"] = sprintf("<div>%s</div>", $item["content"]);
 	}
 
 	#tags
-
 	if($entry["tags"])
 		$item["category"] = $entry["tags"];
 
