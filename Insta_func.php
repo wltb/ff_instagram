@@ -50,7 +50,10 @@ function get_Insta_user_id($json) {
 }
 
 function get_Insta_username($json) {
-	return $json["user"]["full_name"];
+	$name = $json["user"]["full_name"];
+	if(!$name)
+		$name = $json["user"]["username"];
+	return $name;
 }
 
 //Some functions that deal with Instagram API requests
@@ -121,13 +124,13 @@ function convert_Insta_data_to_RSS($entry) {
 	$item["link"] = $entry["link"];
 
 	#author
-	$item["author"] = $entry["user"]["full_name"];
+	$item["author"] = get_Insta_username($entry);
 
 	#date
 	$item["pubDate"] = date(DATE_RSS, $entry["created_time"]);
 
 	#title
-	$item["title"] = $entry["user"]["full_name"];
+	#$item["title"] = $entry["user"]["full_name"];
 
 	#content
 	if($entry["type"] == "image")
