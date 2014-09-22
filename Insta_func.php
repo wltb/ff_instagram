@@ -159,9 +159,8 @@ function convert_Insta_data_to_RSS($entry) {
 	$caption = $entry["caption"]["text"];
 	if($caption) {
 		#heuristic: Suppose that all @xyz strings are Instagram references
-		# and turn them into hyperlinks. Remove faulty unicode before
-		$caption = preg_replace('/[^\x{0009}\x{000a}\x{000d}\x{0020}-\x{D7FF}\x{E000}-\x{FFFD}]+/u', ' ', $caption);
-		$caption = preg_replace('/(?<=\s|\A)@([\w.]+)(?=\s|\z)/',
+		# and turn them into hyperlinks.
+		$caption = preg_replace('/@([\w.]+\w)/',
 				'<a href="http://instagram.com/$1">@$1</a>', $caption);
 
 		$item["content"] = sprintf("<div>%s<p>%s</p></div>", $item["content"], trim($caption));
