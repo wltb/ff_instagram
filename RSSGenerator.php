@@ -25,7 +25,7 @@ $f->link('http://www.example.com');
 $f->set_feed_elements(array('description' => 'Nice Feed', 'title' => 'Feed Title'));
 $f->new_item(array('description' => 'Nice item', 'author' => 'me'));
 $it = $f->new_item(array('description' => 'Another nice item'));
-$it->content('Content'); #content currently overrides description
+$it->content = 'Content'; #content currently overrides description
 $f->save('php://stdout');
 */
 
@@ -34,6 +34,29 @@ class Feed
 	private $feed;
 	private $channel;
 	private $stored_elems = array();
+
+	static private $supported_tags = array('description', 'title', 'link');
+	static private $alias_tags = array('url' => 'link');
+
+	public function __set($name, $value) {
+		if(isset(self::$alias_tags[$name]))
+			$name = self::$alias_tags[$name];
+
+		if(in_array($name, self::$supported_tags)) {
+			$type = DOMText;
+			$this->factory_singleton($value, $name, $type);
+		}
+	}
+
+	public function __get($name) {
+		if(isset(self::$alias_tags[$name]))
+			$name = self::$alias_tags[$name];
+
+		if(isset($this->stored_elems[$name]))
+			return $this->stored_elems[$name];
+		else
+			return NULL;
+	}
 
 	function __construct($ar=array()) {
 		$this->feed = new \DOMDocument('1.0', 'utf-8');
@@ -46,9 +69,8 @@ class Feed
 	}
 
 	function set_feed_elements($ar) {
-		foreach(array('link', 'title', 'description', 'url') as $elem) #, 'category'
-			if(isset($ar[$elem]))
-				$this->$elem($ar[$elem]);
+		foreach($ar as $key => $val)
+			$this->$key = $val;
 	}
 
 	/* better remove this? */
@@ -59,9 +81,9 @@ class Feed
 	/*
 		Creates or replaces feed channel elements
 
-		@param string $tag    Tag name of the node
-		@param string $text    Text to be stored in the node $tag
-		@param DOMText/DOMCdataSection $type    Type of the text node that stores $text & is appended to node $tag
+		@param string $tag	  Tag name of the node
+		@param string $text	   Text to be stored in the node $tag
+		@param DOMText/DOMCdataSection $type	Type of the text node that stores $text & is appended to node $tag
 	*/
 	private function factory_singleton($text, $tag, $type = DOMText) {
 		$text_node = create_text_node($text, $type);
@@ -77,22 +99,6 @@ class Feed
 		$this->stored_elems[$tag] = $node;
 	}
 
-	function description($text) {
-		$this->factory_singleton($text, 'description');
-	}
-
-	function title($text) {
-		$this->factory_singleton($text, 'title');
-	}
-
-	function link($text) {
-		$this->factory_singleton($text, 'link');
-	}
-
-	function url($text) {
-		$this->link($text);
-	}
-
 	function new_item($ar=array()) {
 		$item = $this->feed->createElement('item');
 		$this->channel->appendChild($item);
@@ -103,10 +109,12 @@ class Feed
 	}
 
 	function saveXML() {
+		$this->feed->encoding = 'utf-8';
 		return $this->feed->saveXML() . "\n";
 	}
 
 	function save($filename) {
+		$this->feed->encoding = 'utf-8';
 		$this->feed->save($filename);
 	}
 }
@@ -123,37 +131,18 @@ function create_text_node($text, $type) {
 
 class FeedItem {
 	private $item;
-	static private $methods = array();
+	static private $supported_tags = array('description', 'guid', 'pubDate',
+		'title', 'link', 'author');
+	static private $alias_tags = array('content' => 'description',
+	'date' => 'pubDate', 'url' => 'link');
+
 	private $stored_elems = array();
 
 	function __construct($item, $ar = array()) {
 		$this->item = $item;
-
-		//see ::init for the defintion of ::$methods.
-		foreach(self::$methods as $method)
-			if(isset($ar[$method]))
-				$this->$method($ar[$method]);
-	}
-
-	/*
-	Stores methods that correspond to item elements in self::$methods
-	Is called below. Should be idempotent.
-	*/
-	static function init() {
-		$cls = new \ReflectionClass(new self(""));
-		self::$methods = array_map(function ($v) {return $v->name;},
-			$cls->getMethods(\ReflectionMethod::IS_PUBLIC |
-							\ReflectionMethod::IS_PROTECTED) );
-
-		/*
-		if other publicly available methods are added
-		that shouldn't be called in the constructor,
-		put them in the array right below.
-		*/
-		foreach(array('__construct') as $non_elem) {
-			$key = array_search($non_elem, self::$methods);
-    		unset(self::$methods[$key]);
-    	}
+		//calls __set
+		foreach($ar as $key => $val)
+			$this->$key = $val;
 	}
 
 	//see function in Feed class
@@ -169,46 +158,36 @@ class FeedItem {
 		$this->stored_elems[$tag] = $node;
 	}
 
-	function description($text) {
-		$this->factory_singleton($text, 'description', DOMCdataSection);
+	public function __set($name, $value) {
+		if(isset(self::$alias_tags[$name]))
+			$name = self::$alias_tags[$name];
+
+		if(in_array($name, self::$supported_tags)) {
+			if($name == 'description')
+				$type = DOMCdataSection;
+			else
+				$type = DOMText;
+			$this->factory_singleton($value, $name, $type);
+		} elseif($name == 'category') {
+			$this->category($value);
+		}
 	}
 
-	function guid($text) {
-		$this->factory_singleton($text, 'guid');
+	public function __get($name) {
+		if(isset(self::$alias_tags[$name]))
+			$name = self::$alias_tags[$name];
+
+		if(isset($this->stored_elems[$name]))
+			return $this->stored_elems[$name]->textContent;
+		else
+			return NULL;
 	}
 
-	function pubDate($text) {
-		$this->factory_singleton($text, 'pubDate');
-	}
-
-	function title($text) {
-		$this->factory_singleton($text, 'title');
-	}
-
-	function link($text) {
-		$this->factory_singleton($text, 'link');
-	}
-
-	function author($text) {
-		$this->factory_singleton($text, 'author');
-	}
-
-	function content($text) {
-		$this->description($text);
-	}
-
-	function date($text) {
-		$this->pubDate($text);
-	}
-
-	function url($text) {
-		$this->link($text);
-	}
 
 	/*
 	Adds category nodes.
 
-	@param string/array $arg    category names
+	@param string/array $arg	category names
 	*/
 	function category($arg) {
 		if(!(is_string($arg) || is_array($arg)) )
@@ -223,7 +202,5 @@ class FeedItem {
 		}
 	}
 }
-FeedItem::init();//call this for correct initialization of FeedItem class
-
 
 ?>

@@ -34,8 +34,8 @@ class ff_Instagram extends Plugin
 		#var_dump($json);
 
 		$feed = new RSSGenerator\Feed();
-		$feed->link($url);
-		$feed->title(sprintf("%s / Instagram", Insta\get_Insta_username($json)));
+		$feed->link = $url;
+		$feed->title = sprintf("%s / Instagram", Insta\get_Insta_username($json));
 
 		$loop_func = function($json) use ($feed) {
 			foreach($json as $post) {

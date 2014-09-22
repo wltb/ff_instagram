@@ -53,7 +53,7 @@ function get_Insta_username($json) {
 	$name = $json["user"]["full_name"];
 	if(!$name)
 		$name = $json["user"]["username"];
-	return $name;
+	return trim($name);
 }
 
 //Some functions that deal with Instagram API requests
