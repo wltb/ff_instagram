@@ -19,11 +19,11 @@ namespace Insta;
 function extract_Insta_JSON($url) {
 	$doc = new \DOMDocument();
 	libxml_use_internal_errors(true);
-	$doc->loadHTMLFile($url);
+	@$doc->loadHTMLFile($url);
 	#echo $doc->saveXML();
 
 	$xpath = new \DOMXPath($doc);
-	$js = $xpath->query('//body/script[@type="text/javascript"]')->item(0)->nodeValue;
+	$js = $xpath->query('//body/script[@type="text/javascript" and string-length(text()) > 50 and not(@src)]')->item(0)->nodeValue;
 
 	#var_dump($js);
 
