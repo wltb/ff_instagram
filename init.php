@@ -29,7 +29,7 @@ class ff_Instagram extends Plugin
 	}
 
 
-	function create_feed($url, $timestamp) {
+	static function create_feed($url, $timestamp) {
 		$json = Insta\extract_Insta_JSON($url);
 		#var_dump($json);
 
@@ -61,19 +61,24 @@ class ff_Instagram extends Plugin
 		return $feed->saveXML();
 	}
 
+	static function check_url($url) {
+		//return TRUE on match, FALSE otherwise
+		return preg_match('%^https?://instagram.com/[\w.]+#?$%i',  $url) === 1;
+	}
+
 	function hook_subscribe_feed($contents, $url) {
-		if(preg_match('%^http://instagram.com/[\w.]+#?$%i',  $url) !== 1)
+		if(! self::check_url($url))
 			return $contents;
 
 		return '<rss version="2.0"><channel/></rss>';
 	}
 
 	function hook_fetch_feed($feed_data, $fetch_url, $owner_uid, $feed, $timestamp) {
-		if(preg_match('%^http://instagram.com/[\w.]+#?$%i',  $fetch_url) !== 1 || $feed_data)
+		if(! self::check_url($fetch_url) || $feed_data)
 			return $feed_data;
 
 		try {
-			return $this->create_feed($fetch_url, $timestamp);
+			return self::create_feed($fetch_url, $timestamp);
 		} catch (Exception $e) {
 			user_error("Error for '$fetch_url': " . $e->getMessage());
 		}

@@ -19,7 +19,7 @@ namespace Insta;
 function extract_Insta_JSON($url) {
 	$doc = new \DOMDocument();
 	libxml_use_internal_errors(true);
-	@$doc->loadHTMLFile($url);
+	$doc->loadHTMLFile($url);
 	#echo $doc->saveXML();
 
 	$xpath = new \DOMXPath($doc);
@@ -161,7 +161,7 @@ function convert_Insta_data_to_RSS($entry) {
 		#heuristic: Suppose that all @xyz strings are Instagram references
 		# and turn them into hyperlinks.
 		$caption = preg_replace('/@([\w.]+\w)/',
-				'<a href="http://instagram.com/$1">@$1</a>', $caption);
+				'<a href="https://instagram.com/$1">@$1</a>', $caption);
 
 		$item["content"] = sprintf("<div>%s<p>%s</p></div>", $item["content"], trim($caption));
 	}
