@@ -50,9 +50,9 @@ class ff_Instagram extends Plugin
 			}
 		};
 
-		if($timestamp === false && isset($this->Insta_client_id)) {
+		if($timestamp === false && isset(self::$Insta_client_id)) {
 			Insta\Insta_API_user_recent(Insta\get_Insta_user_id($json),
-				$this->Insta_client_id, $loop_func);
+				self::$Insta_client_id, $loop_func);
 		}
 		else {
 			$loop_func(Insta\get_Insta_user_data($json));
