@@ -123,6 +123,17 @@ function Insta_API_user_recent($user_id, $id, $callback, $timestamp = false) {
 	* @return array    formatted data, indexed with the corresponding RSS elements
 */
 function convert_Insta_data_to_RSS($entry, $last_fetch_time) {
+	if ($last_fetch_time !== false) { //not the first fetch
+		$time = time();
+		if ($entry['is_video']) {
+			if ($time - $entry["date"] > 600000) //10 hours 36000
+				return;
+		} else {
+			if ($time - $entry["date"] > 600000) //a week
+				return;
+		}
+	}
+
 	$item = array();
 
 	#link

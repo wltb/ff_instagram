@@ -47,10 +47,11 @@ class ff_Instagram extends Plugin
 				*/
 
 				$item = Insta\convert_Insta_data_to_RSS($post, $timestamp);
-				$item['author'] = $username;
 				#var_dump($item);
-				if($item)
+				if($item) {
+					$item['author'] = $username;
 					$feed->new_item($item);
+				}
 			}
 		};
 
