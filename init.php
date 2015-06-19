@@ -34,10 +34,11 @@ class ff_Instagram extends Plugin
 		#var_dump($json);
 
 		$feed = new RSSGenerator\Feed();
+		$username = Insta\get_Insta_username($json);
 		$feed->link = $url;
-		$feed->title = sprintf("%s / Instagram", Insta\get_Insta_username($json));
+		$feed->title = sprintf("%s / Instagram", $username);
 
-		$loop_func = function($json) use ($feed) {
+		$loop_func = function($json) use ($feed, $username, $timestamp) {
             if(!$json) return;
 			foreach($json as $post) {
 				/*unset($post["comments"]);
@@ -45,9 +46,11 @@ class ff_Instagram extends Plugin
 				var_dump($post);
 				*/
 
-				$item = Insta\convert_Insta_data_to_RSS($post);
+				$item = Insta\convert_Insta_data_to_RSS($post, $timestamp);
+				$item['author'] = $username;
 				#var_dump($item);
-				$feed->new_item($item);
+				if($item)
+					$feed->new_item($item);
 			}
 		};
 
@@ -56,7 +59,7 @@ class ff_Instagram extends Plugin
 				self::$Insta_client_id, $loop_func);
 		}
 		else {
-			$loop_func(Insta\get_Insta_user_data($json));
+			$loop_func(Insta\get_Insta_user_media($json));
 		}
 
 		return $feed->saveXML();
