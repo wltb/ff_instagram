@@ -39,19 +39,22 @@ class ff_Instagram extends Plugin
 		$feed->title = sprintf("%s / Instagram", $username);
 
 		$loop_func = function($json) use ($feed, $username, $timestamp) {
-            if(!$json) return;
+            //if(!$json) return;
+            $time = time();
 			foreach($json as $post) {
-				/*unset($post["comments"]);
-				unset($post["likes"]);
-				var_dump($post);
-				*/
+				$diff = $time - $post["date"];
+				if ($timestamp !== false  //not the first fetch
+					&& ($timestamp > $post["date"] + 3600)  //post was already seen, or force refetch
+					&& ($diff > 600000  //a week
+							|| ($post['is_video'] && $diff > 7200) //2 hours because of fetch overhead
+						)
+					)
+					continue;
 
-				$item = Insta\convert_Insta_data_to_RSS($post, $timestamp);
+				$item = Insta\convert_Insta_data_to_RSS($post);
+				$item['author'] = $username;
 				#var_dump($item);
-				if($item) {
-					$item['author'] = $username;
-					$feed->new_item($item);
-				}
+				$feed->new_item($item);
 			}
 		};
 

@@ -10,7 +10,7 @@ namespace Insta;
 
 /*
 	* Takes a URL, loads and tries to extract a serialzed JSON.
-	* Most likely only works on Instagram webpages.
+	* Most likely only works on Instagram URLs.
 	*
 	* @param string $url    Should be an Instagram user URL
 	*
@@ -20,19 +20,6 @@ function extract_Insta_JSON($url) {
 	$url = rtrim(build_url(parse_url($url)), "/");
 	$url .= '?__a=1';
 
-	/*$doc = new \DOMDocument();
-	$html = fetch_file_contents($url);
-	@$doc->loadHTML($html);
-	#echo $doc->saveXML();
-
-	$xpath = new \DOMXPath($doc);
-	$js = $xpath->query('//body/script[@type="text/javascript" and string-length(text()) > 50 and not(@src)]')->item(0)->nodeValue;
-
-	#var_dump($js);
-
-	$start = strpos($js, '{');
-	$end = strrpos($js, ';');
-	$json = substr($js, $start, $end - $start);*/
 	$json = fetch_file_contents($url);
 	#echo $json;
 
@@ -118,22 +105,10 @@ function Insta_API_user_recent($user_id, $id, $callback, $timestamp = false) {
 	* and extracts & formats its entries so they can be inserted into a RSS feed
 
 	* @param array $entry    a deserialized Instagram entry
-	* @param int $last_fetch_time   timestamp for the last fetch as provided by Tiny Tiny RSS
 	*
 	* @return array    formatted data, indexed with the corresponding RSS elements
 */
-function convert_Insta_data_to_RSS($entry, $last_fetch_time) {
-	if ($last_fetch_time !== false) { //not the first fetch
-		$time = time();
-		if ($entry['is_video']) {
-			if ($time - $entry["date"] > 600000) //10 hours 36000
-				return;
-		} else {
-			if ($time - $entry["date"] > 600000) //a week
-				return;
-		}
-	}
-
+function convert_Insta_data_to_RSS($entry) {
 	$item = array();
 
 	#link
