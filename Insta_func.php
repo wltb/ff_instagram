@@ -18,8 +18,8 @@ namespace Insta;
 */
 function extract_Insta_JSON($url) {
 	$doc = new \DOMDocument();
-	libxml_use_internal_errors(true);
-	$doc->loadHTMLFile($url);
+	$html = fetch_file_contents($url);
+	@$doc->loadHTML($html);
 	#echo $doc->saveXML();
 
 	$xpath = new \DOMXPath($doc);

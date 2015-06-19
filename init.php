@@ -38,6 +38,7 @@ class ff_Instagram extends Plugin
 		$feed->title = sprintf("%s / Instagram", Insta\get_Insta_username($json));
 
 		$loop_func = function($json) use ($feed) {
+            if(!$json) return;
 			foreach($json as $post) {
 				/*unset($post["comments"]);
 				unset($post["likes"]);
@@ -63,7 +64,7 @@ class ff_Instagram extends Plugin
 
 	static function check_url($url) {
 		//return TRUE on match, FALSE otherwise
-		return preg_match('%^https?://instagram.com/[\w.]+#?$%i',  $url) === 1;
+		return preg_match('%^https?://instagram.com/[\w.]+[#/]?$%i',  $url) === 1;
 	}
 
 	function hook_subscribe_feed($contents, $url) {
