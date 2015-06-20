@@ -28,8 +28,21 @@ class ff_Instagram extends Plugin
 		$host->add_hook($host::HOOK_SUBSCRIBE_FEED, $this);
 	}
 
+	static function save_feed_icon($icon_url, $icon_file) {
+		$contents = fetch_file_contents($icon_url);
+		if ($contents) {
+			$fp = @fopen($icon_file, "w");
 
-	static function create_feed($url, $timestamp) {
+			if ($fp) {
+				fwrite($fp, $contents);
+				fclose($fp);
+				chmod($icon_file, 0644);
+			}
+		}
+	}
+
+
+	static function create_feed($url, $timestamp, $feed_id) {
 		$json = Insta\extract_Insta_JSON($url);
 		#var_dump($json);
 
@@ -37,6 +50,18 @@ class ff_Instagram extends Plugin
 		$username = Insta\get_Insta_username($json);
 		$feed->link = $url;
 		$feed->title = sprintf("%s / Instagram", $username);
+
+		$icon_url = $json["profile_pic_url"];
+		if ($icon_url) {
+			$icon_file = ICONS_DIR . "/$feed_id.ico";
+			if (! feed_has_icon($feed_id) )
+				self::save_feed_icon($icon_url, $icon_file);
+			else {
+				$ts = filemtime($icon_file);
+				if (time() - $ts > 600000) //a week
+					self::save_feed_icon($icon_url, $icon_file);
+			}
+		}
 
 		$loop_func = function($json) use ($feed, $username, $timestamp) {
             //if(!$json) return;
@@ -48,8 +73,9 @@ class ff_Instagram extends Plugin
 					&& ($diff > 600000  //a week
 							|| ($post['is_video'] && $diff > 7200) //2 hours because of fetch overhead
 						)
-					)
+					) {
 					continue;
+				}
 
 				$item = Insta\convert_Insta_data_to_RSS($post);
 				$item['author'] = $username;
@@ -86,7 +112,7 @@ class ff_Instagram extends Plugin
 			return $feed_data;
 
 		try {
-			return self::create_feed($fetch_url, $timestamp);
+			return self::create_feed($fetch_url, $timestamp, $feed);
 		} catch (Exception $e) {
 			user_error("Error for '$fetch_url': " . $e->getMessage());
 		}
