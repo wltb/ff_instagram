@@ -63,8 +63,10 @@ class ff_Instagram extends Plugin
 			}
 		}
 
-		$loop_func = function($json) use ($feed, $username, $timestamp) {
-            //if(!$json) return;
+		$loop_func = function($json) use ($feed, $username, $timestamp, $url) {
+            if(!$json) {
+            	throw new Exception("json data from '$url' empty");
+            }
             $time = time();
 			foreach($json as $post) {
 				$diff = $time - $post["date"];
@@ -89,7 +91,8 @@ class ff_Instagram extends Plugin
 				self::$Insta_client_id, $loop_func);
 		}
 		else {
-			$loop_func(Insta\get_Insta_user_media($json));
+			if ($json["is_private"] === FALSE)
+				$loop_func(Insta\get_Insta_user_media($json));
 		}
 
 		return $feed->saveXML();
@@ -115,6 +118,7 @@ class ff_Instagram extends Plugin
 			return self::create_feed($fetch_url, $timestamp, $feed);
 		} catch (Exception $e) {
 			user_error("Error for '$fetch_url': " . $e->getMessage());
+			return "<error>" . $e->getMessage() . "</error>\n";
 		}
 	}
 

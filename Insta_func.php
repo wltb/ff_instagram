@@ -17,16 +17,20 @@ namespace Insta;
 	* @return array    deserialized JSON
 */
 function extract_Insta_JSON($url) {
-	$url = rtrim(build_url(parse_url($url)), "/");
-	$url .= '?__a=1';
+	$url_m = rtrim(build_url(parse_url($url)), "/");
+	$url_m .= '?__a=1';
 
-	$json = fetch_file_contents($url);
+	$json = fetch_file_contents($url_m);
 	#echo $json;
+	if (! $json) {
+		global $fetch_last_error;
+		throw new \Exception("'$fetch_last_error' occured for '$url'");
+	}
 
 	$a = json_decode($json, true);
 	//var_dump($a);
 	if($a === NULL)
-		throw new \Exception("Couldn't extract json data on '$url'");
+		throw new \Exception("Couldn't extract json data from '$url_m'");
 	return $a["user"];
 }
 
