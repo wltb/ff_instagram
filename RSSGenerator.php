@@ -170,6 +170,8 @@ class FeedItem {
 			$this->factory_singleton($value, $name, $type);
 		} elseif($name == 'category') {
 			$this->category($value);
+		} elseif($name == 'slash_comments') {
+			$this->slash_comments($value);
 		}
 	}
 
@@ -181,6 +183,21 @@ class FeedItem {
 			return $this->stored_elems[$name]->textContent;
 		else
 			return NULL;
+	}
+
+	function slash_comments($num_comments) {
+		$this->item;
+		$node = $this->stored_elems['slash_comments'];
+		if($node) {
+			$node->nodeValue = $num_comments;
+		} else {
+			$this->item->parentNode->parentNode->setAttributeNS('http://www.w3.org/2000/xmlns/',
+				'xmlns:slash', 'http://purl.org/rss/1.0/modules/slash/');
+			$com = new \DOMElement('comments', $num_comments,
+					'http://purl.org/rss/1.0/modules/slash/');
+			$this->item->appendChild($com);
+			$this->stored_elems['slash_comments'] = $com;
+		}
 	}
 
 

@@ -50,6 +50,7 @@ class ff_Instagram extends Plugin
 		$username = Insta\get_Insta_username($json);
 		$feed->link = $url;
 		$feed->title = sprintf("%s / Instagram", $username);
+		$feed->description = $json["biography"];
 
 		$icon_url = $json["profile_pic_url"];
 		if ($icon_url) {

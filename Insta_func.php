@@ -127,6 +127,9 @@ function convert_Insta_data_to_RSS($entry) {
 	#title
 	#$item["title"] = $entry["user"]["full_name"];
 
+	##comments
+	$item["slash_comments"] = $entry["comments"]["count"];
+
 	#content
 	if ($entry['is_video'] === false) {
 		$item["content"] = sprintf('<img src="%s"/>', $entry["display_src"]);
