@@ -13,12 +13,16 @@ namespace Insta;
 	* Most likely only works on Instagram URLs.
 	*
 	* @param string $url    Should be an Instagram user URL
+	* @param int $max_id   should be an int that is an Instagram post id
 	*
 	* @return array    deserialized JSON
 */
-function extract_Insta_JSON($url) {
+function extract_Insta_JSON($url, $max_id=false) {
 	$url_m = rtrim(build_url(parse_url($url)), "/");
 	$url_m .= '?__a=1';
+	if($max_id !== false) {
+		$url_m .= "&max_id=$max_id";
+	}
 
 	$json = fetch_file_contents($url_m);
 	#echo $json;
@@ -37,70 +41,12 @@ function extract_Insta_JSON($url) {
 /*
 	* These function work on an array as returned by extract_Insta_JSON
 */
-function get_Insta_user_media($json) {
-	return $json["media"]["nodes"];
-}
-
-function get_Insta_user_id($json) {
-	return $json["id"];
-}
 
 function get_Insta_username($json) {
 	$name = $json["full_name"];
 	if(!$name)
 		$name = $json["username"];
 	return trim($name);
-}
-
-//Some functions that deal with Instagram API requests
-function decode_Insta_API_response($url) {
-	$json = file_get_contents($url);
-	$json = json_decode($json, true);
-	if($json === NULL)
-		throw new \Exception("'$url' returned no json.");
-
-	if(isset($json["meta"]))
-		$status	= $json["meta"];
-	else
-		$status	= $json;
-
-	if($status["code"] != 200)
-		throw new \Exception($status["error_message"], $status["code"]);
-
-	return $json;
-}
-
-function sanity_check($ids)
-{
-	$s = "https://api.instagram.com/v1/users/44291/media/recent/?min_timestamp=%d&client_id=%s";
-	if(!is_array($ids))
-		$ids = array($ids);
-	shuffle($ids);
-	foreach($ids as $id) {
-		$url = sprintf($s, time(), $id);
-		try {
-			decode_Insta_API_response($url);
-			return $id;
-		} catch (\Exception $e) {
-			continue;
-		}
-	}
-
-	throw $e;
-}
-
-function Insta_API_user_recent($user_id, $id, $callback, $timestamp = false) {
-	$s = "https://api.instagram.com/v1/users/%s/media/recent/?client_id=%s";
-
-	$id = sanity_check($id);
-	$url = sprintf($s, $user_id, $id);
-
-	while(TRUE) {
-		$response = decode_Insta_API_response($url);
-		$callback($response['data']); //yield would be nicer
-		$url = $response["pagination"]["next_url"];
-		if(!$url) break;
-	}
 }
 
 /*

@@ -43,7 +43,7 @@ class ff_Instagram extends Plugin
 
 
 	static function create_feed($url, $timestamp, $feed_id) {
-		$json = Insta\extract_Insta_JSON($url);
+		$json = Insta\extract_Insta_JSON($url); //get_Insta_JSON
 		#var_dump($json);
 
 		$feed = new RSSGenerator\Feed();
@@ -64,36 +64,33 @@ class ff_Instagram extends Plugin
 			}
 		}
 
-		$loop_func = function($json) use ($feed, $username, $timestamp, $url) {
-            if(!$json) {
-            	throw new Exception("json data from '$url' empty");
-            }
-            $time = time();
-			foreach($json as $post) {
-				$diff = $time - $post["date"];
-				if ($timestamp !== false  //not the first fetch
-					&& ($timestamp > $post["date"] + 3600)  //post was already seen, or force refetch
-					&& ($diff > 600000  //a week
-							|| ($post['is_video'] && $diff > 7200) //2 hours because of fetch overhead
-						)
-					) {
-					continue;
+		if ($json["is_private"] === FALSE) {
+			while(TRUE) {
+				$media = $json["media"];
+
+				foreach($media["nodes"] as $post) {
+					$oldest = $post["date"];
+					// because of fetch overhead, do not include videos
+					// that were seen 2 hours ago (not on the very first fetch)
+					if ($post['is_video'] && $timestamp !== false
+						&& $timestamp - $post["date"] > 7200)
+							continue;
+
+					$item = Insta\convert_Insta_data_to_RSS($post); //prepare_Insta_post_for_RSS
+					$item['author'] = $username;
+					#var_dump($item);
+					$feed->new_item($item);
 				}
-
-				$item = Insta\convert_Insta_data_to_RSS($post);
-				$item['author'] = $username;
-				#var_dump($item);
-				$feed->new_item($item);
+				$info = $media["page_info"];
+				//var_dump(end($media["nodes"])["date"]);
+				//var_dump($media["nodes"][count($media["nodes"]) - 1]["date"]);
+				if ( ($timestamp !== false && time() - $oldest > 600000) //don't load post older than a week
+						|| !$info["has_next_page"])
+					break;
+				else {
+					$json = Insta\extract_Insta_JSON($url, $info["end_cursor"]);
+				}
 			}
-		};
-
-		if($timestamp === false && isset(self::$Insta_client_id)) {
-			Insta\Insta_API_user_recent(Insta\get_Insta_user_id($json),
-				self::$Insta_client_id, $loop_func);
-		}
-		else {
-			if ($json["is_private"] === FALSE)
-				$loop_func(Insta\get_Insta_user_media($json));
 		}
 
 		return $feed->saveXML();
