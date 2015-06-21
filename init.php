@@ -2,7 +2,6 @@
 
 if(!class_exists('RSSGenerator\Feed'))
 	include 'RSSGenerator.php';
-include 'Insta_func.php';
 
 class ff_Instagram extends Plugin
 {
@@ -30,7 +29,7 @@ class ff_Instagram extends Plugin
 
 	static function save_feed_icon($icon_url, $icon_file) {
 		$contents = fetch_file_contents($icon_url);
-		if ($contents) {
+		if ($contents && mb_strlen($contents, '8bit') < 65535) {
 			$fp = @fopen($icon_file, "w");
 
 			if ($fp) {
