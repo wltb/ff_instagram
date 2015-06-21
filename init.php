@@ -89,7 +89,7 @@ class ff_Instagram extends Plugin
 		*
 		* @return array    formatted data, indexed with the corresponding RSS elements
 	*/
-	static function prepare_RSS($entry) {
+	static function prepare_for_RSS($entry) {
 		$item = array();
 
 		#link
@@ -122,9 +122,10 @@ class ff_Instagram extends Plugin
 			$type = $xpath->evaluate('string(//meta[@property="og:video:type"]/@content)');
 			$v_url = $xpath->evaluate('string(//meta[@property="og:video:secure_url"]/@content)');
 
-			$item["content"] = sprintf('<video controls width="%s" height="%s" poster="%s">
-				<source src="%s" type="%s"></source> Your browser does not support the video tag. </video>',
-				$width, $height, $entry["display_src"], $v_url, $type);
+			$item["content"] = sprintf("<video controls width='$width' height='$height' poster='%s'>\n"
+				. "<source src='$v_url' type='$type'></source>\n"
+				. "Your browser does not support the video tag.</video>",
+				$entry["display_src"]);
 		}
 
 		$caption = $entry["caption"];
@@ -134,7 +135,7 @@ class ff_Instagram extends Plugin
 			$caption = preg_replace('/@([\w.]+\w)/',
 					'<a href="https://instagram.com/$1">@$1</a>', $caption);
 
-			$item["content"] = sprintf("<div>%s<p>%s</p></div>", $item["content"], trim($caption));
+			$item["content"] = sprintf("<p>%s</p><p>%s</p>", $item["content"], trim($caption));
 		}
 
 		#tags - still somewhere?
@@ -172,13 +173,13 @@ class ff_Instagram extends Plugin
 
 				foreach($media["nodes"] as $post) {
 					$oldest = $post["date"];
-					// because of fetch overhead, do not include videos
-					// that were seen 2 hours ago (not on the very first fetch)
+					// because of fetch overhead, most likely do not include videos
+					// that were already seen 2 hours ago (not on the very first fetch)
 					if ($post['is_video'] && $timestamp !== false
-						&& $timestamp - $post["date"] > 7200)
+						&& $timestamp - $post["date"] > 7200 && mt_rand(0, 99) < 90)
 							continue;
 
-					$item = self::prepare_RSS($post);
+					$item = self::prepare_for_RSS($post);
 					$item['author'] = $username;
 					#var_dump($item);
 					$feed->new_item($item);
