@@ -82,7 +82,7 @@ class ff_Instagram extends Plugin
 
 	/*
 		* Takes an Instagram entry
-		* (an entry of the array returned by get_Insta_user_media)
+		* (an entry of the array returned by get_Insta_JSON)
 		* and extracts & formats its entries so they can be inserted into a RSS feed
 
 		* @param array $entry    a deserialized Instagram entry
@@ -170,14 +170,16 @@ class ff_Instagram extends Plugin
 		if ($json["is_private"] === FALSE) {
 			while(TRUE) {
 				$media = $json["media"];
+				$break_outer = False;
 
-				foreach($media["nodes"] as $post) {
-					$oldest = $post["date"];
-					// because of fetch overhead, most likely do not include videos
-					// that were already seen 2 hours ago (not on the very first fetch)
-					if ($post['is_video'] && $timestamp !== false
-						&& $timestamp - $post["date"] > 7200 && mt_rand(0, 99) < 90)
-							continue;
+				foreach($media["nodes"] as $index => $post) {
+					if($timestamp !== false && $timestamp - $post["date"] > 300000 && $index > 6) {
+						// on fetches that aren't the first fetch,
+						// don't fetch posts that are half a week older than the last fetch-time,
+						// but fetch at least 7 items
+						$break_outer = True;
+						break;
+					}
 
 					$item = self::prepare_for_RSS($post);
 					$item['author'] = $username;
@@ -187,8 +189,7 @@ class ff_Instagram extends Plugin
 				$info = $media["page_info"];
 				//var_dump(end($media["nodes"])["date"]);
 				//var_dump($media["nodes"][count($media["nodes"]) - 1]["date"]);
-				if ( ($timestamp !== false && time() - $oldest > 600000) //don't load post older than a week
-						|| !$info["has_next_page"])
+				if ($break_outer || !$info["has_next_page"])
 					break;
 				else {
 					$json = self::get_Insta_JSON($url, $info["end_cursor"]);
@@ -201,7 +202,7 @@ class ff_Instagram extends Plugin
 
 	static function check_url($url) {
 		//return TRUE on match, FALSE otherwise
-		return preg_match('%^https?://instagram.com/[\w.]+[#/]?$%i',  $url) === 1;
+		return preg_match('%^https?://(www\.)?instagram\.com/[\w.]+[#/]?$%i',  $url) === 1;
 	}
 
 	function hook_subscribe_feed($contents, $url) {
