@@ -59,13 +59,19 @@ class ff_Instagram extends Plugin
 		#echo $json;
 		if (! $json) {
 			global $fetch_last_error;
-			throw new Exception("'$fetch_last_error' occured for '$url'");
+			$e = new Exception("'$fetch_last_error' occured for '$url'");
+			$e->url = $url;
+			$e->fetch_last_error = $fetch_last_error;
+			throw $e;
 		}
 
 		$a = json_decode($json, true);
 		//var_dump($a);
-		if($a === NULL)
-			throw new Exception("Couldn't extract json data from '$url_m'");
+		if($a === NULL) {
+			$e = new Exception("Couldn't extract json data from '$url_m'");
+			$e->url = $url_m;
+			throw $e;
+		}
 		return $a["user"];
 	}
 
@@ -219,8 +225,13 @@ class ff_Instagram extends Plugin
 		try {
 			return self::create_feed($fetch_url, $timestamp, $feed);
 		} catch (Exception $e) {
-			user_error("Error for '$fetch_url': " . $e->getMessage());
-			return "<error>" . $e->getMessage() . "</error>\n";
+			if(isset($e->fetch_last_error) && $e->fetch_last_error == "HTTP Code: 404")
+			// let ttrss try to fetch it for a nice feedback in the gui.
+				return '';
+
+			$msg = $e->getMessage();
+			user_error("Error for '$fetch_url': $msg");
+			return "<error>$msg</error>\n";
 		}
 	}
 
