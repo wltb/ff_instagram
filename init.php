@@ -143,7 +143,7 @@ class ff_Instagram extends Plugin
 			$type = $xpath->evaluate('string(//meta[@property="og:video:type"]/@content)');
 			$v_url = $xpath->evaluate('string(//meta[@property="og:video:secure_url"]/@content)');
 
-			$item["content"] = sprintf("<video controls width='$width' height='$height' poster='%s'>\n"
+			$item["content"] = sprintf("<video controls muted width='$width' height='$height' poster='%s'>\n"
 				. "<source src='$v_url' type='$type'></source>\n"
 				. "Your browser does not support the video tag.</video>",
 				$entry["display_src"]);
