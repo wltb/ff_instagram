@@ -151,6 +151,42 @@ class ff_Instagram extends Plugin
 		return $item;
 	}
 
+	static function process_Insta_json($url, $timestamp, $callback, $json=NULL) {
+		if(!$json)
+			$json = self::get_Insta_JSON($url);
+		//var_dump($json);
+		$username = self::get_Insta_username($json);
+		if ($json["is_private"] === FALSE) {
+			while(TRUE) {
+				$media = $json["media"];
+				$break_outer = False;
+
+				foreach($media["nodes"] as $index => $post) {
+					if($timestamp !== false && $timestamp - $post["date"] > 300000 && $index > 6) {
+						// on fetches that aren't the first fetch,
+						// don't fetch posts that are half a week older than the last fetch-time,
+						// but fetch at least 7 items
+						$break_outer = True;
+						break;
+					}
+
+					$item = self::prepare_for_RSS($post);
+					$item['author'] = $username;
+					#var_dump($item);
+					$callback($item); //yield would be nicer
+				}
+				$info = $media["page_info"];
+				//var_dump(end($media["nodes"])["date"]);
+				//var_dump($media["nodes"][count($media["nodes"]) - 1]["date"]);
+				if ($break_outer || !$info["has_next_page"])
+					break;
+				else {
+					$json = self::get_Insta_JSON($url, $info["end_cursor"]);
+				}
+			}
+		}
+	}
+
 	static function create_feed($url, $timestamp, $feed_id) {
 		$json = self::get_Insta_JSON($url);
 		#var_dump($json);
@@ -173,35 +209,11 @@ class ff_Instagram extends Plugin
 			}
 		}
 
-		if ($json["is_private"] === FALSE) {
-			while(TRUE) {
-				$media = $json["media"];
-				$break_outer = False;
+		$loop_func = function(&$ar) use ($feed) {
+			$feed->new_item($ar);
+		};
 
-				foreach($media["nodes"] as $index => $post) {
-					if($timestamp !== false && $timestamp - $post["date"] > 300000 && $index > 6) {
-						// on fetches that aren't the first fetch,
-						// don't fetch posts that are half a week older than the last fetch-time,
-						// but fetch at least 7 items
-						$break_outer = True;
-						break;
-					}
-
-					$item = self::prepare_for_RSS($post);
-					$item['author'] = $username;
-					#var_dump($item);
-					$feed->new_item($item);
-				}
-				$info = $media["page_info"];
-				//var_dump(end($media["nodes"])["date"]);
-				//var_dump($media["nodes"][count($media["nodes"]) - 1]["date"]);
-				if ($break_outer || !$info["has_next_page"])
-					break;
-				else {
-					$json = self::get_Insta_JSON($url, $info["end_cursor"]);
-				}
-			}
-		}
+		self::process_Insta_json($url, $timestamp, $loop_func, $json);
 
 		return $feed->saveXML();
 	}
