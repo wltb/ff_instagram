@@ -1,6 +1,6 @@
 <?php
 
-if(!class_exists('RSSGenerator\Feed'))
+if(!class_exists('RSSGenerator_Inst\Feed'))
 	include 'RSSGenerator.php';
 
 class ff_Instagram extends Plugin
@@ -242,7 +242,7 @@ class ff_Instagram extends Plugin
 			return "<error>$msg</error>\n";
 		}
 		#var_dump($this->json);
-		$feed = new RSSGenerator\Feed();
+		$feed = new RSSGenerator_Inst\Feed();
 
 		$username = self::get_Insta_username($this->json);
 		$feed->link = $fetch_url;
@@ -274,7 +274,7 @@ class ff_Instagram extends Plugin
 		$xpath = $p_xpath->getValue($rss);
 		$doc = $xpath->document;
 
-		$feed = new RSSGenerator\Feed(array(), $doc);
+		$feed = new RSSGenerator_Inst\Feed(array(), $doc);
 		$items = array();
 
 		$loop_func = function(&$ar) use ($feed, &$items, $doc, $xpath) {

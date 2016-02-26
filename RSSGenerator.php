@@ -1,5 +1,5 @@
 <?php
-namespace RSSGenerator;
+namespace RSSGenerator_Inst;
 /*
 	* This is a quick & dirty RSS feed generator.
 	* RSS elements will be supported at (my) need.
