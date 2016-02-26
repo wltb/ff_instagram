@@ -28,6 +28,19 @@ class ff_Instagram extends Plugin
 		$host->add_hook($host::HOOK_FEED_PARSED, $this);
 	}
 
+	//TODO unify this
+	static function check_feed_icon($icon_url, $feed_id) {
+		if ($icon_url) {
+			$icon_file = ICONS_DIR . "/$feed_id.ico";
+			if (! feed_has_icon($feed_id) ) self::save_feed_icon($icon_url, $icon_file);
+			else {
+				$ts = filemtime($icon_file);
+				if (time() - $ts > 600000) //a week
+					self::save_feed_icon($icon_url, $icon_file);
+			}
+		}
+	}
+
 	static function save_feed_icon($icon_url, $icon_file) {
 		$contents = fetch_file_contents($icon_url);
 		if ($contents && mb_strlen($contents, '8bit') < 65535) {
@@ -40,6 +53,7 @@ class ff_Instagram extends Plugin
 			}
 		}
 	}
+
 	/*
 		* Takes a URL, loads and tries to extract a serialzed JSON.
 		* Most likely only works on Instagram URLs.
@@ -174,7 +188,7 @@ class ff_Instagram extends Plugin
 					$item = self::prepare_for_RSS($post);
 					$item['author'] = $username;
 					#var_dump($item);
-					$callback($item); //yield would be nicer
+					$callback($item); //TODO yield would be nicer
 				}
 				$info = $media["page_info"];
 				//var_dump(end($media["nodes"])["date"]);
@@ -182,35 +196,10 @@ class ff_Instagram extends Plugin
 				if ($break_outer || !$info["has_next_page"])
 					break;
 				else {
-					$json = self::get_Insta_JSON($url, $info["end_cursor"]);
+					$json = self::get_Insta_JSON($url, $info["end_cursor"]); // TODO catch Exceptions
 				}
 			}
 		}
-	}
-
-	static function create_feed($url, $timestamp, $feed_id) {
-		$json = self::get_Insta_JSON($url);
-		#var_dump($json);
-
-		$feed = new RSSGenerator\Feed();
-		$username = self::get_Insta_username($json);
-		$feed->link = $url;
-		$feed->title = sprintf("%s / Instagram", $username);
-		$feed->description = $json["biography"];
-
-		$icon_url = $json["profile_pic_url"];
-		if ($icon_url) {
-			$icon_file = ICONS_DIR . "/$feed_id.ico";
-			if (! feed_has_icon($feed_id) )
-				self::save_feed_icon($icon_url, $icon_file);
-			else {
-				$ts = filemtime($icon_file);
-				if (time() - $ts > 600000) //a week
-					self::save_feed_icon($icon_url, $icon_file);
-			}
-		}
-
-		return $feed->saveXML();
 	}
 
 	static function check_url($url) {
@@ -237,17 +226,12 @@ class ff_Instagram extends Plugin
 		return $feed->saveXML();
 	}
 
-	function hook_fetch_feed($feed_data, $fetch_url, $owner_uid, $feed, $timestamp) {
+	function hook_fetch_feed($feed_data, $fetch_url, $owner_uid, $feed_id, $timestamp) {
 		if(! self::check_url($fetch_url) || $feed_data)
 			return $feed_data;
 
 		try {
-			$s = self::create_feed($fetch_url, $timestamp, $feed);
-			$this->ts = $timestamp;
 			$this->json = self::get_Insta_JSON($fetch_url);
-			$this->url = $fetch_url;
-
-			return $s;
 		} catch (Exception $e) {
 			if(isset($e->fetch_last_error) && $e->fetch_last_error == "HTTP Code: 404")
 			// let ttrss try to fetch it for a nice feedback in the gui.
@@ -257,6 +241,19 @@ class ff_Instagram extends Plugin
 			user_error("Error for '$fetch_url': $msg");
 			return "<error>$msg</error>\n";
 		}
+		#var_dump($this->json);
+		$feed = new RSSGenerator\Feed();
+
+		$username = self::get_Insta_username($this->json);
+		$feed->link = $fetch_url;
+		$feed->title = "$username / Instagram";
+		$feed->description = $this->json["biography"];
+
+		self::check_feed_icon($this->json["profile_pic_url"], $feed_id);
+		$this->ts = $timestamp;
+		$this->url = $fetch_url;
+
+		return $feed->saveXML();
 	}
 
 	function hook_feed_parsed($rss) {
