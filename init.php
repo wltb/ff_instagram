@@ -25,6 +25,7 @@ class ff_Instagram extends Plugin
 		}
 		$host->add_hook($host::HOOK_FETCH_FEED, $this);
 		$host->add_hook($host::HOOK_SUBSCRIBE_FEED, $this);
+		$host->add_hook($host::HOOK_FEED_PARSED, $this);
 	}
 
 	static function save_feed_icon($icon_url, $icon_file) {
@@ -209,12 +210,6 @@ class ff_Instagram extends Plugin
 			}
 		}
 
-		$loop_func = function(&$ar) use ($feed) {
-			$feed->new_item($ar);
-		};
-
-		self::process_Insta_json($url, $timestamp, $loop_func, $json);
-
 		return $feed->saveXML();
 	}
 
@@ -247,7 +242,12 @@ class ff_Instagram extends Plugin
 			return $feed_data;
 
 		try {
-			return self::create_feed($fetch_url, $timestamp, $feed);
+			$s = self::create_feed($fetch_url, $timestamp, $feed);
+			$this->ts = $timestamp;
+			$this->json = self::get_Insta_JSON($fetch_url);
+			$this->url = $fetch_url;
+
+			return $s;
 		} catch (Exception $e) {
 			if(isset($e->fetch_last_error) && $e->fetch_last_error == "HTTP Code: 404")
 			// let ttrss try to fetch it for a nice feedback in the gui.
@@ -257,6 +257,38 @@ class ff_Instagram extends Plugin
 			user_error("Error for '$fetch_url': $msg");
 			return "<error>$msg</error>\n";
 		}
+	}
+
+	function hook_feed_parsed($rss) {
+		if (!self::check_url($rss->get_link())) return;
+
+		static $ref;
+		static $p_xpath;
+		static $p_items;
+		if(!$ref) { #initialize reflection
+			$ref = new ReflectionClass('FeedParser');
+			$p_xpath = $ref->getProperty('xpath');
+			$p_xpath->setAccessible(true);
+			$p_items = $ref->getProperty('items');
+			$p_items->setAccessible(true);
+		}
+		if(count($p_items->getValue($rss))) return;
+
+		$xpath = $p_xpath->getValue($rss);
+		$doc = $xpath->document;
+
+		$feed = new RSSGenerator\Feed(array(), $doc);
+		$items = array();
+
+		$loop_func = function(&$ar) use ($feed, &$items, $doc, $xpath) {
+			$it = $feed->new_item($ar);
+			$items [] = new FeedItem_RSS($it->get_item(), $doc, $xpath);
+		};
+
+		self::process_Insta_json($this->url, $this->ts, $loop_func, $this->json);
+		//var_dump($items);
+
+		$p_items->setValue($rss, $items);
 	}
 
 }

@@ -58,10 +58,14 @@ class Feed
 			return NULL;
 	}
 
-	function __construct($ar=array()) {
-		$this->feed = new \DOMDocument('1.0', 'utf-8');
-		$this->feed->loadXML('<rss version="2.0"><channel/></rss>');
-		$this->feed->formatOutput = true;
+	function __construct($ar=array(), $doc=NULL) {
+		if($doc)
+			$this->feed = $doc;
+		else {
+			$this->feed = new \DOMDocument('1.0', 'utf-8');
+			$this->feed->loadXML('<rss version="2.0"><channel/></rss>');
+			$this->feed->formatOutput = true;
+		}
 
 		$this->channel = $this->feed->getElementsByTagName('channel')->item(0);
 
@@ -143,6 +147,10 @@ class FeedItem {
 		//calls __set
 		foreach($ar as $key => $val)
 			$this->$key = $val;
+	}
+
+	function get_item() {
+		return $this->item;
 	}
 
 	//see function in Feed class
