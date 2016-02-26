@@ -215,7 +215,19 @@ class ff_Instagram extends Plugin
 		if(! self::check_url($url))
 			return $contents;
 
-		return '<rss version="2.0"><channel/></rss>';
+		$charset_hack = '<head>
+			<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+		</head>';
+		$doc = new DOMDocument();
+		@$doc->loadHTML($charset_hack . $contents);
+		$xpath = new DOMXPath($doc);
+
+		$feed = new RSSGenerator\Feed();
+		$feed->link = $xpath->evaluate('string(//meta[@property="og:url"]/@content)');
+		$feed->title = $xpath->evaluate('string(//meta[@property="og:title"]/@content)');
+		$feed->description = $xpath->evaluate('string(//meta[@property="og:description"]/@content)');
+
+		return $feed->saveXML();
 	}
 
 	function hook_fetch_feed($feed_data, $fetch_url, $owner_uid, $feed, $timestamp) {
