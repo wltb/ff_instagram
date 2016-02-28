@@ -92,7 +92,7 @@ class ff_Instagram extends Plugin
 	}
 
 	/*
-		* These function work on an array as returned by get_Insta_JSON
+		* This function work on an array as returned by get_Insta_JSON
 	*/
 
 	static function get_Insta_username($json) {
@@ -101,6 +101,10 @@ class ff_Instagram extends Plugin
 			$name = $json["username"];
 		return trim($name);
 	}
+
+	/*
+		$url should be a URL to an Instagram video page.
+	*/
 
 	static function fetch_Insta_video($url) {
 		$doc = new DOMDocument();
@@ -201,10 +205,15 @@ class ff_Instagram extends Plugin
 				$info = $media["page_info"];
 				//var_dump(end($media["nodes"])["date"]);
 				//var_dump($media["nodes"][count($media["nodes"]) - 1]["date"]);
-				if ($break_outer || !$info["has_next_page"])
-					break;
+				if ($break_outer || !$info["has_next_page"]) break;
 				else {
-					$json = self::get_Insta_JSON($url, $info["end_cursor"]); // TODO catch Exceptions
+					try {
+						$json = self::get_Insta_JSON($url, $info["end_cursor"]);
+					} catch (Exception $e) {
+						$msg = $e->getMessage();
+						user_error("Error for '$url': $msg");
+						break;
+					}
 				}
 			}
 		}
