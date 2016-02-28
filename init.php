@@ -101,6 +101,25 @@ class ff_Instagram extends Plugin
 		return trim($name);
 	}
 
+	static function fetch_Insta_video($url) {
+		$doc = new DOMDocument();
+		$html = fetch_file_contents($url);
+		@$doc->loadHTML($html);
+		#echo $doc->saveXML();
+		$xpath = new DOMXPath($doc);
+
+		$height = $xpath->evaluate('string(//meta[@property="og:video:height"]/@content)');
+		$width = $xpath->evaluate('string(//meta[@property="og:video:width"]/@content)');
+		$type = $xpath->evaluate('string(//meta[@property="og:video:type"]/@content)');
+		$v_url = $xpath->evaluate('string(//meta[@property="og:video:secure_url"]/@content)');
+		$poster = $xpath->evaluate('string(//meta[@property="og:image"]/@content)');
+
+		return "<video controls muted width='$width' height='$height' poster='$poster'>\n"
+				. "<source src='$v_url' type='$type'></source>\n"
+				. "Your browser does not support the video tag.</video>";
+		// TODO $xpath->evaluate('string(//meta[@property="og:description"]/@content)'); -> title
+	}
+
 	/*
 		* Takes an Instagram entry
 		* (an entry of the array returned by get_Insta_JSON)
@@ -132,21 +151,7 @@ class ff_Instagram extends Plugin
 		if ($entry['is_video'] === false) {
 			$item["content"] = sprintf('<img src="%s"/>', $entry["display_src"]);
 		} else{
-			$doc = new DOMDocument();
-			$html = fetch_file_contents($item["link"]);
-			@$doc->loadHTML($html);
-			#echo $doc->saveXML();
-			$xpath = new DOMXPath($doc);
-
-			$height = $xpath->evaluate('string(//meta[@property="og:video:height"]/@content)');
-			$width = $xpath->evaluate('string(//meta[@property="og:video:width"]/@content)');
-			$type = $xpath->evaluate('string(//meta[@property="og:video:type"]/@content)');
-			$v_url = $xpath->evaluate('string(//meta[@property="og:video:secure_url"]/@content)');
-
-			$item["content"] = sprintf("<video controls muted width='$width' height='$height' poster='%s'>\n"
-				. "<source src='$v_url' type='$type'></source>\n"
-				. "Your browser does not support the video tag.</video>",
-				$entry["display_src"]);
+			$item["content"] = self::fetch_Insta_video($item["link"]);
 		}
 
 		$caption = $entry["caption"];
