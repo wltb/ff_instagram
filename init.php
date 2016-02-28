@@ -35,9 +35,11 @@ class ff_Instagram extends Plugin
 			$icon_file = ICONS_DIR . "/$feed_id.ico";
 			if (! feed_has_icon($feed_id) ) self::save_feed_icon($icon_url, $icon_file);
 			else {
+				/*
 				$ts = filemtime($icon_file);
 				if (time() - $ts > 600000) //a week
 					self::save_feed_icon($icon_url, $icon_file);
+				*/
 			}
 		}
 	}
