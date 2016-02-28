@@ -26,6 +26,7 @@ class ff_Instagram extends Plugin
 		$host->add_hook($host::HOOK_FETCH_FEED, $this);
 		$host->add_hook($host::HOOK_SUBSCRIBE_FEED, $this);
 		$host->add_hook($host::HOOK_FEED_PARSED, $this);
+		$host->add_hook($host::HOOK_ARTICLE_FILTER, $this);
 	}
 
 	//TODO unify this
@@ -148,10 +149,12 @@ class ff_Instagram extends Plugin
 		$item["slash_comments"] = $entry["comments"]["count"];
 
 		#content
+		$item['is_video'] = $entry['is_video'];  // deferred fetch
+
 		if ($entry['is_video'] === false) {
-			$item["content"] = sprintf('<img src="%s"/>', $entry["display_src"]);
+			$item["content"] = sprintf('<p><img src="%s"/></p>', $entry["display_src"]);
 		} else{
-			$item["content"] = self::fetch_Insta_video($item["link"]);
+			$item["content"] = '';//self::fetch_Insta_video($item["link"]);
 		}
 
 		$caption = $entry["caption"];
@@ -161,7 +164,7 @@ class ff_Instagram extends Plugin
 			$caption = preg_replace('/@([\w.]+\w)/',
 					'<a href="https://instagram.com/$1">@$1</a>', $caption);
 
-			$item["content"] = sprintf("<p>%s</p><p>%s</p>", $item["content"], trim($caption));
+			$item["content"] = sprintf("%s<p>%s</p>", $item["content"], trim($caption));
 		}
 
 		#tags - still somewhere?
@@ -281,9 +284,12 @@ class ff_Instagram extends Plugin
 
 		$feed = new RSSGenerator_Inst\Feed(array(), $doc);
 		$items = array();
+		$this->urls = array();
+		$urls = & $this->urls;
 
-		$loop_func = function(&$ar) use ($feed, &$items, $doc, $xpath) {
+		$loop_func = function(&$ar) use ($feed, &$items, &$urls, $doc, $xpath) {
 			$it = $feed->new_item($ar);
+			if($ar['is_video']) $urls[$ar['link']] = $ar['is_video'];
 			$items [] = new FeedItem_RSS($it->get_item(), $doc, $xpath);
 		};
 
@@ -292,6 +298,17 @@ class ff_Instagram extends Plugin
 
 		$p_items->setValue($rss, $items);
 	}
+
+	function hook_article_filter($article) {
+		$link = $article["link"];
+		if(isset($this->urls[$link]) && $this->urls[$link]) {
+			$cont = self::fetch_Insta_video($link);
+			$article['content'] = "<p>$cont</p>" . $article['content'];
+		}
+
+		return $article;
+	}
+
 
 }
 ?>
