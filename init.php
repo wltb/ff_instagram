@@ -237,7 +237,7 @@ class ff_Instagram extends Plugin
 		@$doc->loadHTML($charset_hack . $contents);
 		$xpath = new DOMXPath($doc);
 
-		$feed = new RSSGenerator\Feed();
+		$feed = new RSSGenerator_Inst\Feed();
 		$feed->link = $xpath->evaluate('string(//meta[@property="og:url"]/@content)');
 		$feed->title = $xpath->evaluate('string(//meta[@property="og:title"]/@content)');
 		$feed->description = $xpath->evaluate('string(//meta[@property="og:description"]/@content)');
