@@ -185,7 +185,8 @@ class ff_Instagram extends Plugin
 			$json = self::get_Insta_JSON($url);
 		//var_dump($json);
 		$username = self::get_Insta_username($json);
-		if ($json["is_private"] === FALSE) {
+
+		if ($json["is_private"] === FALSE) { // TODO shouldn't happen anymore, so drop it here.
 			while(TRUE) {
 				$media = $json["media"];
 				$break_outer = False;
@@ -219,6 +220,10 @@ class ff_Instagram extends Plugin
 				}
 			}
 		}
+	}
+
+	static function Insta_is_private($json) {
+		return $json["is_private"];
 	}
 
 	static function check_url($url) {
@@ -262,6 +267,9 @@ class ff_Instagram extends Plugin
 			return "<error>$msg</error>\n";
 		}
 		#var_dump($this->json);
+		if(self::Insta_is_private($this->json)) # TODO test this
+			return "<error>Page is private</error>\n";
+
 		$feed = new RSSGenerator_Inst\Feed();
 
 		$username = self::get_Insta_username($this->json);
