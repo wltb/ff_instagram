@@ -239,7 +239,8 @@ class ff_Instagram extends Plugin
 
 		$feed = new RSSGenerator_Inst\Feed();
 		$feed->link = $xpath->evaluate('string(//meta[@property="og:url"]/@content)');
-		$feed->title = $xpath->evaluate('string(//meta[@property="og:title"]/@content)');
+		$title = $xpath->evaluate('string(//meta[@property="og:title"]/@content)');
+		$feed->title = preg_replace("/ photos and videos$/", '', $title);
 		$feed->description = $xpath->evaluate('string(//meta[@property="og:description"]/@content)');
 
 		return $feed->saveXML();
@@ -265,7 +266,7 @@ class ff_Instagram extends Plugin
 
 		$username = self::get_Insta_username($this->json);
 		$feed->link = $fetch_url;
-		$feed->title = "$username / Instagram";
+		$feed->title = "$username • Instagram";
 		$feed->description = $this->json["biography"];
 
 		self::check_feed_icon($this->json["profile_pic_url"], $feed_id);
