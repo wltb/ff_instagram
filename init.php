@@ -27,6 +27,8 @@ class ff_Instagram extends Plugin
 		$host->add_hook($host::HOOK_SUBSCRIBE_FEED, $this);
 		$host->add_hook($host::HOOK_FEED_PARSED, $this);
 		$host->add_hook($host::HOOK_ARTICLE_FILTER, $this);
+
+		$this->host = $host;
 	}
 
 	//TODO unify this
@@ -181,8 +183,7 @@ class ff_Instagram extends Plugin
 	}
 
 	static function process_Insta_json($url, $timestamp, $callback, $json=NULL) {
-		if(!$json)
-			$json = self::get_Insta_JSON($url);
+		if(!$json) $json = self::get_Insta_JSON($url);
 		//var_dump($json);
 		$username = self::get_Insta_username($json);
 
@@ -251,9 +252,8 @@ class ff_Instagram extends Plugin
 		return $feed->saveXML();
 	}
 
-	function hook_fetch_feed($feed_data, $fetch_url, $owner_uid, $feed_id, $timestamp) {
-		if(! self::check_url($fetch_url) || $feed_data)
-			return $feed_data;
+	function hook_fetch_feed($feed_data, $fetch_url, $owner_uid, $feed_id) {
+		if(! self::check_url($fetch_url) || $feed_data) return $feed_data;
 
 		try {
 			$this->json = self::get_Insta_JSON($fetch_url);
@@ -278,7 +278,17 @@ class ff_Instagram extends Plugin
 		$feed->description = $this->json["biography"];
 
 		self::check_feed_icon($this->json["profile_pic_url"], $feed_id);
-		$this->ts = $timestamp;
+
+		//check latest entry in DB
+		$db = $this->host->get_dbh();
+		$result = $db->query("SELECT max(date_entered) AS ts FROM
+				ttrss_entries, ttrss_user_entries WHERE
+				ref_id = id AND feed_id = '$feed_id'", false);
+		$ts = $db->fetch_result($result, 0, "ts");//NULL when no entries in DB
+
+		if($ts) $this->ts = @strtotime($ts);
+		else $this->ts = false;
+
 		$this->url = $fetch_url;
 
 		return $feed->saveXML();
