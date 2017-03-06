@@ -117,6 +117,34 @@ class ff_Instagram extends Plugin
 		#echo $doc->saveXML();
 		$xpath = new DOMXPath($doc);
 
+		$script = $xpath->query('//script[@type="text/javascript" and contains(., "GraphSidecar")]');
+		//var_dump($script);
+		if($script->length === 1) {
+			$script = $script->item(0)->textContent;
+			$json = preg_replace('/^\s*window._sharedData\s*=\s*|\s*;\s*$/', '', $script);
+			$json = json_decode($json, true);
+
+			$data = $json["entry_data"]["PostPage"][0]["media"];
+			//unset($data["comments"]);unset($data["likes"]);
+			//var_dump($data);
+			$edges = $data["edge_sidecar_to_children"]["edges"];
+			if(!$edges || !is_array($edges)) user_error("'$url': Something wrong.");
+
+			$html = '';
+			foreach($edges as $edge) {
+				$node = $edge['node']; //really...
+				$i_url = $node["display_url"];
+
+				if($node["is_video"]) {
+					$v_url = $node["video_url"];
+					$html .= "<video controls muted poster='$i_url'>\n"
+						. "<source src='$v_url' type='video/mp4'/></video>";
+				} else $html .= "<img src='$i_url'/>";
+			}
+			return $html;
+		}
+
+
 		$height = $xpath->evaluate('string(//meta[@property="og:video:height"]/@content)');
 		$width = $xpath->evaluate('string(//meta[@property="og:video:width"]/@content)');
 		$type = $xpath->evaluate('string(//meta[@property="og:video:type"]/@content)');
@@ -158,11 +186,12 @@ class ff_Instagram extends Plugin
 
 		#content
 		$item['is_video'] = $entry['is_video'];  // deferred fetch
+		$item['multi'] = $entry["__typename"] === 'GraphSidecar';
 
-		if ($entry['is_video'] === false) {
-			$item["content"] = sprintf('<p><img src="%s"/></p>', $entry["display_src"]);
-		} else{
+		if ($item['is_video'] || $item['multi']) {
 			$item["content"] = '';//self::fetch_Insta_video($item["link"]);
+		} else{
+			$item["content"] = sprintf('<p><img src="%s"/></p>', $entry["display_src"]);
 		}
 
 		$caption = $entry["caption"];
@@ -317,7 +346,7 @@ class ff_Instagram extends Plugin
 
 		$loop_func = function(&$ar) use ($feed, &$items, &$urls, $doc, $xpath) {
 			$it = $feed->new_item($ar);
-			if($ar['is_video']) $urls[$ar['link']] = $ar['is_video'];
+			if($ar['is_video'] || $ar['multi']) $urls[$ar['link']] = true;
 			$items [] = new FeedItem_RSS($it->get_item(), $doc, $xpath);
 		};
 
@@ -329,7 +358,7 @@ class ff_Instagram extends Plugin
 
 	function hook_article_filter($article) {
 		$link = $article["link"];
-		if(isset($this->urls[$link]) && $this->urls[$link]) {
+		if(isset($this->urls[$link])) {
 			$cont = self::fetch_Insta_video($link);
 			$article['content'] = "<p>$cont</p>" . $article['content'];
 		}
