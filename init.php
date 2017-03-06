@@ -106,11 +106,50 @@ class ff_Instagram extends Plugin
 		return trim($name);
 	}
 
-	/*
-		$url should be a URL to an Instagram video page.
-	*/
+	static function create_figure(array $media, $caption='', DOMDocument $doc=NULL) {
+		if(! $doc) $doc = new DOMDocument();
+		$fig = $doc->createElement('figure');
+		$fig->setAttribute('insta_gallery', '');
+		foreach($media as $arr) {
+			list($i_url, $v_url) = $arr;
+			if($v_url) {
+				$med = $doc->createElement('video');
+				$src = $doc->createElement('source');
+				$src->setAttribute('src', $v_url);
+				$src->setAttribute('type', 'video/mp4');
+				$med->setAttribute('controls', '');
+				$med->setAttribute('muted', '');
+				$med->setAttribute('poster', $i_url);
+				$med->appendChild($src);
+			} else {
+				$med = $doc->createElement('img');
+				$med->setAttribute('src', $i_url);
+			}
+			$fig->appendChild($med);
+		}
 
-	static function fetch_Insta_video($url) {
+		if($caption) {
+			$cap = $doc->createElement('figcaption');
+			//$text = $doc->createTextNode($caption); we want to preserve hyperlinks, so...
+			//$cap->appendChild($text);
+
+			$doc2 = new DOMDocument();
+			$doc2->loadHTML('<?xml version="1.0" encoding="utf-8"?>' . $caption);
+			$body = $doc2->getElementsByTagName('body')->item(0);
+			$p = $doc->importNode($body->firstChild, true);//libxml wraps caption into a <p>
+			while($child = $p->firstChild) $cap->appendChild($child);
+
+			$fig->appendChild($cap);
+		}
+		$fig = $doc->appendChild($fig);
+		return $fig->c14n();
+	}
+
+	/*
+		$url should be a URL to an Instagram video/multi* page.
+		TODO do the scrap also for an image only page
+	*/
+	static function scrap_Insta_url($url, $caption) {
 		$doc = new DOMDocument();
 		$html = fetch_file_contents($url);
 		@$doc->loadHTML($html);
@@ -130,31 +169,26 @@ class ff_Instagram extends Plugin
 			$edges = $data["edge_sidecar_to_children"]["edges"];
 			if(!$edges || !is_array($edges)) user_error("'$url': Something wrong.");
 
-			$html = '';
+			$arr = array();
 			foreach($edges as $edge) {
 				$node = $edge['node']; //really...
 				$i_url = $node["display_url"];
-
-				if($node["is_video"]) {
-					$v_url = $node["video_url"];
-					$html .= "<video controls muted poster='$i_url'>\n"
-						. "<source src='$v_url' type='video/mp4'/></video>";
-				} else $html .= "<img src='$i_url'/>";
+				$val = NULL;
+				if($node["is_video"]) $val = $node["video_url"];
+				$arr[] = array($i_url, $val);
 			}
-			return $html;
+		} else {
+			/*$height = $xpath->evaluate('string(//meta[@property="og:video:height"]/@content)');
+			$width = $xpath->evaluate('string(//meta[@property="og:video:width"]/@content)');
+			$type = $xpath->evaluate('string(//meta[@property="og:video:type"]/@content)');
+			*/
+			$v_url = $xpath->evaluate('string(//meta[@property="og:video:secure_url"]/@content)');
+			$poster = $xpath->evaluate('string(//meta[@property="og:image"]/@content)');
+
+			$arr = array(array($poster, $v_url));
 		}
 
-
-		$height = $xpath->evaluate('string(//meta[@property="og:video:height"]/@content)');
-		$width = $xpath->evaluate('string(//meta[@property="og:video:width"]/@content)');
-		$type = $xpath->evaluate('string(//meta[@property="og:video:type"]/@content)');
-		$v_url = $xpath->evaluate('string(//meta[@property="og:video:secure_url"]/@content)');
-		$poster = $xpath->evaluate('string(//meta[@property="og:image"]/@content)');
-
-		return "<video controls muted width='$width' height='$height' poster='$poster'>\n"
-				. "<source src='$v_url' type='$type'></source>\n"
-				. "Your browser does not support the video tag.</video>";
-		// TODO $xpath->evaluate('string(//meta[@property="og:description"]/@content)'); -> title
+		return self::create_figure($arr, $caption, $doc);
 	}
 
 	/*
@@ -173,7 +207,7 @@ class ff_Instagram extends Plugin
 		$item["link"] = 'https://instagram.com/p/' . $entry["code"];
 
 		#author
-		#$item["author"] = get_Insta_username($entry);
+		#$item["author"] = get_Insta_username($entry);//done by the caller
 
 		#date
 		$item["pubDate"] = date(DATE_RSS, $entry["date"]);
@@ -188,20 +222,24 @@ class ff_Instagram extends Plugin
 		$item['is_video'] = $entry['is_video'];  // deferred fetch
 		$item['multi'] = $entry["__typename"] === 'GraphSidecar';
 
-		if ($item['is_video'] || $item['multi']) {
-			$item["content"] = '';//self::fetch_Insta_video($item["link"]);
-		} else{
-			$item["content"] = sprintf('<p><img src="%s"/></p>', $entry["display_src"]);
-		}
-
 		$caption = $entry["caption"];
 		if($caption) {
+			//sanitize caption
+			$caption =  preg_replace('/[^\x{0009}\x{000a}\x{000d}\x{0020}-\x{D7FF}\x{E000}-\x{FFFD}]+/u', ' ', $caption);
+			$caption = trim($caption);
+
 			#heuristic: Suppose that all @xyz strings are Instagram references
 			# and turn them into hyperlinks.
 			$caption = preg_replace('/@([\w.]+\w)/',
 					'<a href="https://instagram.com/$1">@$1</a>', $caption);
+		}
 
-			$item["content"] = sprintf("%s<p>%s</p>", $item["content"], trim($caption));
+		if ($item['is_video'] || $item['multi']) {//caption only; is scraped later
+			$item["content"] = $caption;//self::scrap_Insta_url($item["link"], $caption);
+		} else{
+			$item["content"] = self::create_figure(array(array($entry["display_src"], ''))
+				, $caption);
+			#sprintf('<p><img src="%s"/></p><p>%s</p>', $entry["display_src"], $caption);
 		}
 
 		#tags - still somewhere?
@@ -222,10 +260,10 @@ class ff_Instagram extends Plugin
 
 			foreach($media["nodes"] as $index => $post) {
 				/* on fetches that aren't the very first fetch, don't fetch posts
-				that are two weeks older than the latest db entry,
+				that are one week older than the latest db entry,
 				but fetch at least 7 items
 				*/
-				if($timestamp && $timestamp - $post["date"] > 1200100 && $index > 6) {
+				if($timestamp && $timestamp - $post["date"] > 605102 && $index > 6) {
 					break;
 				}
 
@@ -294,7 +332,7 @@ class ff_Instagram extends Plugin
 			return "<error>$msg</error>\n";
 		}
 		#var_dump($this->json);
-		if(self::Insta_is_private($this->json)) # TODO test this
+		if(self::Insta_is_private($this->json)) # TODO implement login
 			return "<error>Page is private</error>\n";
 
 		$feed = new RSSGenerator_Inst\Feed();
@@ -359,8 +397,7 @@ class ff_Instagram extends Plugin
 	function hook_article_filter($article) {
 		$link = $article["link"];
 		if(isset($this->urls[$link])) {
-			$cont = self::fetch_Insta_video($link);
-			$article['content'] = "<p>$cont</p>" . $article['content'];
+			$article['content'] = self::scrap_Insta_url($link, $article['content']);
 		}
 
 		return $article;
