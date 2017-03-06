@@ -187,38 +187,36 @@ class ff_Instagram extends Plugin
 		//var_dump($json);
 		$username = self::get_Insta_username($json);
 
-		if ($json["is_private"] === FALSE) { // TODO shouldn't happen anymore, so drop it here.
-			while(TRUE) {
-				$media = $json["media"];
-				$break_outer = False;
+		if ($json["is_private"] === TRUE) return; // shouldn't happen here, but whatever
+		while(TRUE) {
+			$media = $json["media"];
 
-				foreach($media["nodes"] as $index => $post) {
-					if($timestamp !== false && $timestamp - $post["date"] > 300000 && $index > 6) {
-						// on fetches that aren't the first fetch,
-						// don't fetch posts that are half a week older than the last fetch-time,
-						// but fetch at least 7 items
-						$break_outer = True;
-						break;
-					}
+			foreach($media["nodes"] as $index => $post) {
+				/* on fetches that aren't the very first fetch, don't fetch posts
+				that are two weeks older than the latest db entry,
+				but fetch at least 7 items
+				*/
+				if($timestamp && $timestamp - $post["date"] > 1200100 && $index > 6) {
+					break;
+				}
 
-					$item = self::prepare_for_RSS($post);
-					$item['author'] = $username;
-					#var_dump($item);
-					$callback($item); //TODO yield would be nicer
-				}
-				$info = $media["page_info"];
-				//var_dump(end($media["nodes"])["date"]);
-				//var_dump($media["nodes"][count($media["nodes"]) - 1]["date"]);
-				if ($break_outer || !$info["has_next_page"]) break;
-				else {
-					try {
-						$json = self::get_Insta_JSON($url, $info["end_cursor"]);
-					} catch (Exception $e) {
-						$msg = $e->getMessage();
-						user_error("Error for '$url': $msg");
-						break;
-					}
-				}
+				$item = self::prepare_for_RSS($post);
+				$item['author'] = $username;
+				#var_dump($item);
+				$callback($item); //TODO yield would be nicer
+			}
+			$info = $media["page_info"];
+			//var_dump(end($media["nodes"])["date"]);
+			//var_dump($media["nodes"][count($media["nodes"]) - 1]["date"]);
+
+			# only continue fetching if there are no entries in the DB (most likely very first fetch)
+			if($timestamp || ! $info["has_next_page"]) break;
+
+			try {
+				$json = self::get_Insta_JSON($url, $info["end_cursor"]);
+			} catch (Exception $e) {
+				user_error("Error for '$url': " . $e->getMessage());
+				break;
 			}
 		}
 	}
