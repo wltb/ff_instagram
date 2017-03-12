@@ -138,7 +138,7 @@ class ff_Instagram extends Plugin
 			//$cap->appendChild($text);
 
 			$doc2 = new DOMDocument();
-			$doc2->loadHTML('<?xml version="1.0" encoding="utf-8"?>' . $caption);
+			$doc2->loadHTML('<?xml version="1.0" encoding="utf-8"?>' . "<p>$caption</p>");
 			$body = $doc2->getElementsByTagName('body')->item(0);
 			$p = $doc->importNode($body->firstChild, true);//libxml wraps caption into a <p>
 			while($child = $p->firstChild) $cap->appendChild($child);
