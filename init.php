@@ -24,6 +24,7 @@ class ff_Instagram extends Plugin
 			return;
 		}
 		$host->add_hook($host::HOOK_FETCH_FEED, $this);
+		$host->add_hook($host::HOOK_FEED_FETCHED, $this);
 		$host->add_hook($host::HOOK_SUBSCRIBE_FEED, $this);
 		$host->add_hook($host::HOOK_FEED_PARSED, $this);
 		$host->add_hook($host::HOOK_ARTICLE_FILTER, $this);
@@ -85,11 +86,14 @@ class ff_Instagram extends Plugin
 			throw $e;
 		}
 
-		$a = json_decode($json, true);
+		return self::decode_Insta_json($json);
+	}
+
+	static function decode_Insta_json($s) {
+		$a = json_decode($s, true);
 		//var_dump($a);
-		if($a === NULL) {
-			$e = new Exception("Couldn't extract json data from '$url_m'");
-			$e->url = $url_m;
+		if(! is_array($a) || ! isset($a['user'])) {
+			$e = new Exception("Couldn't extract json data: '$s'");
 			throw $e;
 		}
 		return $a["user"];
@@ -282,7 +286,7 @@ class ff_Instagram extends Plugin
 			try {
 				$json = self::get_Insta_JSON($url, $info["end_cursor"]);
 			} catch (Exception $e) {
-				user_error("Error for '$url': " . $e->getMessage());
+				user_error("Error for '$url', end_cursor '{$info["end_cursor"]}': " . $e->getMessage());
 				break;
 			}
 		}
@@ -317,28 +321,34 @@ class ff_Instagram extends Plugin
 		return $feed->saveXML();
 	}
 
-	function hook_fetch_feed($feed_data, $fetch_url, $owner_uid, $feed_id) {
+	function hook_fetch_feed($feed_data, &$fetch_url) {
 		if(! self::check_url($fetch_url) || $feed_data) return $feed_data;
 
-		try {
-			$this->json = self::get_Insta_JSON($fetch_url);
-		} catch (Exception $e) {
-			if(isset($e->fetch_last_error) && $e->fetch_last_error == "HTTP Code: 404")
-			// let ttrss try to fetch it for a nice feedback in the gui.
-				return '';
+		$this->url = $fetch_url;
 
-			$msg = $e->getMessage();
-			user_error("Error for '$fetch_url': $msg");
-			return "<error>$msg</error>\n";
+		$fetch_url = rtrim(build_url(parse_url($fetch_url)), "/");
+		$fetch_url .= '?__a=1';
+
+		return '';
+	}
+
+	function hook_feed_fetched($feed_data, $fetch_url, $owner_uid, $feed_id) {
+		if(! self::check_url($this->url)) return $feed_data;
+
+		try {
+			$this->json = self::decode_Insta_json($feed_data);
+		} catch (Exception $e) {
+			user_error("Error for '{$this->url}': {$e->getMessage()}");
+			return '';
 		}
 		#var_dump($this->json);
 		if(self::Insta_is_private($this->json)) # TODO implement login
-			return "<error>Page is private</error>\n";
+			return "<error>'{$this->url}': Page is private</error>\n";
 
 		$feed = new RSSGenerator_Inst\Feed();
 
 		$username = self::get_Insta_username($this->json);
-		$feed->link = $fetch_url;
+		$feed->link = $this->url;
 		$feed->title = "$username • Instagram";
 		$feed->description = $this->json["biography"];
 
@@ -353,8 +363,6 @@ class ff_Instagram extends Plugin
 
 		if($ts) $this->ts = @strtotime($ts);
 		else $this->ts = false;
-
-		$this->url = $fetch_url;
 
 		return $feed->saveXML();
 	}
