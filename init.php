@@ -197,61 +197,13 @@ class ff_Instagram extends Plugin
 	}
 
 	/*
-		* Takes an Instagram entry
-		* (an entry of the array returned by fetch_Insta_json)
-		* and extracts & formats its entries so they can be inserted into a RSS feed
+		* Takes an Instagram url, an integer timestamp, a callback function and
+		* optionally a json array as returned by fetch/decode_Insta_json for caching reasons.
 
-		* @param array $entry    a deserialized Instagram entry
-		*
-		* @return array    formatted data, indexed with the corresponding RSS elements
+		* Fetches Instagram entries associated with the url and prepares them
+		* for usage in RSS: Each post data/metadata is stored in an array that
+		* can be used for RSSGenerator's Item class, and callback is applied to it.
 	*/
-	static function prepare_for_RSS($entry) {
-		$item = array();
-
-		#link
-		$item["link"] = 'https://instagram.com/p/' . $entry["code"];
-
-		#author
-		#$item["author"] = get_Insta_username($entry);//done by the caller
-
-		#date
-		$item["pubDate"] = date(DATE_RSS, $entry["date"]);
-
-		#title
-		#$item["title"] = $entry["user"]["full_name"];
-
-		##comments
-		$item["slash_comments"] = $entry["comments"]["count"];
-
-		#content
-		$item['_later'] = $entry['is_video'] || ($entry["__typename"] === 'GraphSidecar');
-
-		$caption = $entry["caption"];
-		if($caption) {
-			//sanitize caption
-			$caption =  preg_replace('/[^\x{0009}\x{000a}\x{000d}\x{0020}-\x{D7FF}\x{E000}-\x{FFFD}]+/u', ' ', $caption);
-			$caption = trim($caption);
-
-			#heuristic: Suppose that all @xyz strings are Instagram references
-			# and turn them into hyperlinks.
-			$caption = preg_replace('/@([\w.]+\w)/',
-					'<a href="https://instagram.com/$1">@$1</a>', $caption);
-		}
-
-		if ($item['_later']) {//caption only; is scraped later
-			$item["content"] = $caption;//self::scrap_Insta_url($item["link"], $caption);
-		} else{
-			$item["content"] = self::create_figure(array(array($entry["display_src"], ''))
-				, $caption);
-			#sprintf('<p><img src="%s"/></p><p>%s</p>', $entry["display_src"], $caption);
-		}
-
-		#tags - still somewhere?
-		/*if($entry["tags"])
-			$item["category"] = $entry["tags"];*/
-
-		return $item;
-	}
 
 	static function process_Insta_json($url, $timestamp, $callback, $json=NULL) {
 		if(!$json) $json = self::fetch_Insta_json($url);
@@ -259,7 +211,8 @@ class ff_Instagram extends Plugin
 		$username = self::get_Insta_username($json);
 
 		if ($json["is_private"] === TRUE) return; // shouldn't happen here, but whatever
-		while(TRUE) {
+		$LIMIT = 2000;
+		for($i=0; $i<$LIMIT; $i++) {
 			$media = $json["media"];
 
 			foreach($media["nodes"] as $index => $post) {
@@ -270,11 +223,38 @@ class ff_Instagram extends Plugin
 				if($timestamp && $timestamp - $post["date"] > 605102 && $index > 6) {
 					break;
 				}
+				$item = array();
 
-				$item = self::prepare_for_RSS($post);
+				$item["link"] = 'https://instagram.com/p/' . $post["code"];
 				$item['author'] = $username;
+				$item["pubDate"] = date(DATE_RSS, $post["date"]);
+				##comments
+				$item["slash_comments"] = $post["comments"]["count"];
+				#content
+				$later = $post['is_video'] || ($post["__typename"] === 'GraphSidecar');
+
+				$caption = $post["caption"];
+				if($caption) {
+					//sanitize caption
+					$caption = preg_replace('/[^\x{0009}\x{000a}\x{000d}\x{0020}-\x{D7FF}\x{E000}-\x{FFFD}]+/u', ' ', $caption);
+					$caption = trim($caption);
+
+					#heuristic: Suppose that all @xyz strings are Instagram references
+					# and turn them into hyperlinks.
+					$caption = preg_replace('/@([\w.]+\w)/',
+							'<a href="https://instagram.com/$1">@$1</a>', $caption);
+				}
+
+				if ($later) {//caption only; is scraped later
+					$item["content"] = $caption;//self::scrap_Insta_url($item["link"], $caption);
+				} else{
+					$item["content"] = self::create_figure(array(array($post["display_src"], ''))
+						, $caption);
+					#sprintf('<p><img src="%s"/></p><p>%s</p>', $post["display_src"], $caption);
+				}
+
 				#var_dump($item);
-				$callback($item); //TODO yield would be nicer
+				$callback($item, $later); //TODO yield would be nicer
 			}
 			$info = $media["page_info"];
 			//var_dump(end($media["nodes"])["date"]);
@@ -390,9 +370,9 @@ class ff_Instagram extends Plugin
 		$this->urls = array();
 		$urls = & $this->urls;
 
-		$loop_func = function(&$ar) use ($feed, &$items, &$urls, $doc, $xpath) {
+		$loop_func = function(&$ar, $later) use ($feed, &$items, &$urls, $doc, $xpath) {
 			$it = $feed->new_item($ar);
-			if($ar['_later']) $urls[$ar['link']] = true;
+			if($later) $urls[$ar['link']] = true;
 			$items [] = new FeedItem_RSS($it->get_item(), $doc, $xpath);
 		};
 
