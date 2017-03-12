@@ -69,7 +69,7 @@ class ff_Instagram extends Plugin
 		*
 		* @return array    deserialized JSON
 	*/
-	static function get_Insta_JSON($url, $max_id=false) {
+	static function fetch_Insta_json($url, $max_id=false) {
 		$url_m = rtrim(build_url(parse_url($url)), "/");
 		$url_m .= '?__a=1';
 		if($max_id !== false) {
@@ -100,7 +100,7 @@ class ff_Instagram extends Plugin
 	}
 
 	/*
-		* This function work on an array as returned by get_Insta_JSON
+		* This function work on an array as returned by fetch_Insta_json
 	*/
 
 	static function get_Insta_username($json) {
@@ -110,7 +110,7 @@ class ff_Instagram extends Plugin
 		return trim($name);
 	}
 
-	static function create_figure(array $media, $caption='', DOMDocument $doc=NULL) {
+	static function create_figure(array $media, $caption, DOMDocument $doc=NULL, $muted=TRUE) {
 		if(! $doc) $doc = new DOMDocument();
 		$fig = $doc->createElement('figure');
 		$fig->setAttribute('insta_gallery', '');
@@ -122,8 +122,9 @@ class ff_Instagram extends Plugin
 				$src->setAttribute('src', $v_url);
 				$src->setAttribute('type', 'video/mp4');
 				$med->setAttribute('controls', '');
-				$med->setAttribute('muted', '');
+				if($muted) $med->setAttribute('muted', '');
 				$med->setAttribute('poster', $i_url);
+				if(count($media) < 2) $med->setAttribute('autoplay', '');
 				$med->appendChild($src);
 			} else {
 				$med = $doc->createElement('img');
@@ -197,7 +198,7 @@ class ff_Instagram extends Plugin
 
 	/*
 		* Takes an Instagram entry
-		* (an entry of the array returned by get_Insta_JSON)
+		* (an entry of the array returned by fetch_Insta_json)
 		* and extracts & formats its entries so they can be inserted into a RSS feed
 
 		* @param array $entry    a deserialized Instagram entry
@@ -223,8 +224,7 @@ class ff_Instagram extends Plugin
 		$item["slash_comments"] = $entry["comments"]["count"];
 
 		#content
-		$item['is_video'] = $entry['is_video'];  // deferred fetch
-		$item['multi'] = $entry["__typename"] === 'GraphSidecar';
+		$item['_later'] = $entry['is_video'] || ($entry["__typename"] === 'GraphSidecar');
 
 		$caption = $entry["caption"];
 		if($caption) {
@@ -238,7 +238,7 @@ class ff_Instagram extends Plugin
 					'<a href="https://instagram.com/$1">@$1</a>', $caption);
 		}
 
-		if ($item['is_video'] || $item['multi']) {//caption only; is scraped later
+		if ($item['_later']) {//caption only; is scraped later
 			$item["content"] = $caption;//self::scrap_Insta_url($item["link"], $caption);
 		} else{
 			$item["content"] = self::create_figure(array(array($entry["display_src"], ''))
@@ -254,7 +254,7 @@ class ff_Instagram extends Plugin
 	}
 
 	static function process_Insta_json($url, $timestamp, $callback, $json=NULL) {
-		if(!$json) $json = self::get_Insta_JSON($url);
+		if(!$json) $json = self::fetch_Insta_json($url);
 		//var_dump($json);
 		$username = self::get_Insta_username($json);
 
@@ -284,7 +284,7 @@ class ff_Instagram extends Plugin
 			if($timestamp || ! $info["has_next_page"]) break;
 
 			try {
-				$json = self::get_Insta_JSON($url, $info["end_cursor"]);
+				$json = self::fetch_Insta_json($url, $info["end_cursor"]);
 			} catch (Exception $e) {
 				user_error("Error for '$url', end_cursor '{$info["end_cursor"]}': " . $e->getMessage());
 				break;
@@ -392,7 +392,7 @@ class ff_Instagram extends Plugin
 
 		$loop_func = function(&$ar) use ($feed, &$items, &$urls, $doc, $xpath) {
 			$it = $feed->new_item($ar);
-			if($ar['is_video'] || $ar['multi']) $urls[$ar['link']] = true;
+			if($ar['_later']) $urls[$ar['link']] = true;
 			$items [] = new FeedItem_RSS($it->get_item(), $doc, $xpath);
 		};
 
