@@ -61,26 +61,46 @@ class ff_Instagram extends Plugin
 	}
 
 	/*
+	 * Takes a URL and if it determines it to be an Instagram user URL, returns
+	 * a normalized version of it. This is useful since ttrss determines
+	 * uniquiness of feeds by the fetch_url (and owner_id).
+	 *
+	 * If the function thinks its argument doesn't belong to an Instagram user,
+	 * it returns NULL, so it's also useful to check if the plugin should hook in.
+	*/
+
+	static function normalize_Insta_user_url($url) {
+		$path = parse_url($url, PHP_URL_PATH);
+		$host = parse_url($url, PHP_URL_HOST);
+
+		if(! preg_match('/(^|\.)instagram\.com$/i', $host)) return;
+
+		$p_comps = array_filter(explode("/", $path, 3));
+		$user = strtolower(array_shift($p_comps));  // instagram is case insensitive about user names
+		if( ! $user || $p_comps) return;
+
+		return "https://instagram.com/$user/";
+	}
+
+	/*
 		* Takes a URL, loads and tries to extract a serialzed JSON.
 		* Most likely only works on Instagram URLs.
 		*
-		* @param string $url    Should be an Instagram user URL
-		* @param int $max_id   should be an int that is an Instagram post id
+		* @param string $url    Should be an Instagram user URL, we assume it is nomalized
+		* @param int $max_id   should be an Instagram post id
 		*
 		* @return array    deserialized JSON
 	*/
-	static function fetch_Insta_json($url, $max_id=false) {
-		$url_m = rtrim(build_url(parse_url($url)), "/");
-		$url_m .= '?__a=1';
-		if($max_id !== false) {
-			$url_m .= "&max_id=$max_id";
-		}
+	static function fetch_Insta_json($url, $max_id=NULL) {
+		#$url = self::normalize_Insta_user_url($url);
+		$url_m = "$url?__a=1";
+		if($max_id) $url_m .= "&max_id=$max_id";
 
 		$json = fetch_file_contents($url_m);
 		#echo $json;
 		if (! $json) {
 			global $fetch_last_error;
-			$e = new Exception("'$fetch_last_error' occured for '$url'");
+			$e = new Exception("'$fetch_last_error' occured for '$url_m'");
 			$e->url = $url;
 			$e->fetch_last_error = $fetch_last_error;
 			throw $e;
@@ -100,15 +120,31 @@ class ff_Instagram extends Plugin
 	}
 
 	/*
-		* This function work on an array as returned by fetch_Insta_json
+		* These functions works on an array as returned by fetch/decode_Insta_json
 	*/
 
 	static function get_Insta_username($json) {
 		$name = $json["full_name"];
-		if(!$name)
-			$name = $json["username"];
+		if(!$name) $name = $json["username"];
 		return trim($name);
 	}
+
+	static function get_Insta_private($json) {
+		return $json["is_private"];
+	}
+
+	/*
+	 * produces a presentable HTML version (<figure>) of Instagram media.
+	 *
+	 * $media			array of 2-tuples. If the second component is empty,
+	 * 					the first is assumed to be an image URL, if not, the first
+	 * 					is assumed to be a poster URL and the second a video URL.
+	 * $caption			string, goes to <figcaption>. HTML markup is preserved.
+	 * $doc				DOMDocument, for efficiency reasons?
+	 * $muted			currently not used
+	 *
+	 * returns			a string with HTML markup
+	*/
 
 	static function create_figure(array $media, $caption, DOMDocument $doc=NULL, $muted=TRUE) {
 		if(! $doc) $doc = new DOMDocument();
@@ -210,7 +246,7 @@ class ff_Instagram extends Plugin
 		//var_dump($json);
 		$username = self::get_Insta_username($json);
 
-		if ($json["is_private"] === TRUE) return; // shouldn't happen here, but whatever
+		if(self::get_Insta_private($json) === TRUE) return; // shouldn't happen here, but whatever
 		$LIMIT = 2000;
 		for($i=0; $i<$LIMIT; $i++) {
 			$media = $json["media"];
@@ -272,63 +308,56 @@ class ff_Instagram extends Plugin
 		}
 	}
 
-	static function Insta_is_private($json) {
-		return $json["is_private"];
-	}
-
-	static function check_url($url) {
-		//return TRUE on match, FALSE otherwise
-		return preg_match('%^https?://(www\.)?instagram\.com/[\w.]+[#/]?$%i',  $url) === 1;
-	}
-
-	function hook_subscribe_feed($contents, $url) {
-		if(! self::check_url($url))
-			return $contents;
-
-		$charset_hack = '<head>
+	const charset_hack = '<head>
 			<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
 		</head>';
+
+	function hook_subscribe_feed($contents, &$url) {
+		$n_url = self::normalize_Insta_user_url($url);
+		if(! $n_url) return $contents;
+
+		$url = $n_url;
+
 		$doc = new DOMDocument();
-		@$doc->loadHTML($charset_hack . $contents);
+		@$doc->loadHTML(self::charset_hack . $contents);
 		$xpath = new DOMXPath($doc);
 
 		$feed = new RSSGenerator_Inst\Feed();
-		$feed->link = $xpath->evaluate('string(//meta[@property="og:url"]/@content)');
+		$feed->link = $url;
 		$title = $xpath->evaluate('string(//meta[@property="og:title"]/@content)');
 		$feed->title = preg_replace("/ photos and videos$/", '', $title);
-		$feed->description = $xpath->evaluate('string(//meta[@property="og:description"]/@content)');
+		#$feed->description = $xpath->evaluate('string(//meta[@property="og:description"]/@content)');
 
 		return $feed->saveXML();
 	}
 
 	function hook_fetch_feed($feed_data, &$fetch_url) {
-		if(! self::check_url($fetch_url) || $feed_data) return $feed_data;
+		$url = self::normalize_Insta_user_url($fetch_url);
 
-		$this->url = $fetch_url;
-
-		$fetch_url = rtrim(build_url(parse_url($fetch_url)), "/");
-		$fetch_url .= '?__a=1';
+		if(! $url || $feed_data) return $feed_data;
+		else $fetch_url = $url . '?__a=1';
 
 		return '';
 	}
 
 	function hook_feed_fetched($feed_data, $fetch_url, $owner_uid, $feed_id) {
-		if(! self::check_url($this->url)) return $feed_data;
+		$url = self::normalize_Insta_user_url($fetch_url);
+		if(! $url) return $feed_data;
 
 		try {
 			$this->json = self::decode_Insta_json($feed_data);
 		} catch (Exception $e) {
-			user_error("Error for '{$this->url}': {$e->getMessage()}");
+			user_error("Error for '$url': {$e->getMessage()}");
 			return '';
 		}
 		#var_dump($this->json);
-		if(self::Insta_is_private($this->json)) # TODO implement login
-			return "<error>'{$this->url}': Page is private</error>\n";
+		if(self::get_Insta_private($this->json)) # TODO implement login
+			return "<error>'$url': Page is private</error>\n";
 
 		$feed = new RSSGenerator_Inst\Feed();
 
 		$username = self::get_Insta_username($this->json);
-		$feed->link = $this->url;
+		$feed->link = $url;
 		$feed->title = "$username • Instagram";
 		$feed->description = $this->json["biography"];
 
@@ -344,11 +373,13 @@ class ff_Instagram extends Plugin
 		if($ts) $this->ts = @strtotime($ts);
 		else $this->ts = false;
 
+		$this->url = $url;
+
 		return $feed->saveXML();
 	}
 
 	function hook_feed_parsed($rss) {
-		if (!self::check_url($rss->get_link())) return;
+		if ( ! self::normalize_Insta_user_url($rss->get_link())) return;
 
 		static $ref;
 		static $p_xpath;
