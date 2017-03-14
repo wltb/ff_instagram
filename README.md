@@ -16,7 +16,7 @@ Note that the directory containing *init.php* **must** be named *ff_instagram*, 
 
 After that, the plugin must be enabled in the preferences of Tiny Tiny RSS.
 
-###Updating
+### Updating
 Either with
 
 ```sh
@@ -25,10 +25,10 @@ $ git pull
 
 or redownload the archive and replace the existing directory.
 
-##Subscribing
+## Subscribing
 With latest trunk or version >= 1.13 of Tiny Tiny RSS it is possible to subscribe directly to Instagram URLs, so simply enter or paste *https://instagram.com/some_user_name* into the subscribe dialog.
 
-##Private Accounts
+## Private Accounts
 At the moment, the plugin can't aggregate posts from private accounts even if you have access to them, so if an subscribed account is private, the error *Unknown/unsupported feed type* should appear in the UI.
 
 Since this will very likely not be implemented in the foreseeable future, pull requests would be appreciated.
