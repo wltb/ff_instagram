@@ -147,6 +147,8 @@ class ff_Instagram extends Plugin
 	*/
 
 	static function create_figure(array $media, $caption, DOMDocument $doc=NULL, $muted=TRUE) {
+		if(! $media) return;
+
 		if(! $doc) $doc = new DOMDocument();
 		$fig = $doc->createElement('figure');
 		$fig->setAttribute('insta_gallery', '');
@@ -187,15 +189,22 @@ class ff_Instagram extends Plugin
 	}
 
 	/*
-		$url should be a URL to an Instagram video/multi* page.
-		TODO do the scrap also for an image only page
+		$url should be a URL to an Instagram video/multi* page, but image only should work as well.
 	*/
 	static function scrap_Insta_url($url, $caption) {
 		$doc = new DOMDocument();
 		$html = fetch_file_contents($url);
+		if(! $html) {
+			global $fetch_last_error;
+			global $fetch_last_error_code;
+			$e = new Exception("'$fetch_last_error' occured for '$url'", $fetch_last_error_code);
+			$e->url = $url;
+			throw $e;
+		}
 		@$doc->loadHTML($html);
 		#echo $doc->saveXML();
 		$xpath = new DOMXPath($doc);
+		$arr = array();
 
 		$script = $xpath->query('//script[@type="text/javascript" and contains(., "GraphSidecar")]');
 		//var_dump($script);
@@ -208,9 +217,8 @@ class ff_Instagram extends Plugin
 			//unset($data["comments"]);unset($data["likes"]);
 			//var_dump($data);
 			$edges = $data["edge_sidecar_to_children"]["edges"];
-			if(!$edges || !is_array($edges)) user_error("'$url': Something wrong.");
+			if(!$edges || !is_array($edges)) user_error("'$url': Something wrong with js hack.");
 
-			$arr = array();
 			foreach($edges as $edge) {
 				$node = $edge['node']; //really...
 				$i_url = $node["display_url"];
@@ -218,7 +226,9 @@ class ff_Instagram extends Plugin
 				if($node["is_video"]) $val = $node["video_url"];
 				$arr[] = array($i_url, $val);
 			}
-		} else {
+		}
+
+		if(! $arr) {//fallback
 			/*$height = $xpath->evaluate('string(//meta[@property="og:video:height"]/@content)');
 			$width = $xpath->evaluate('string(//meta[@property="og:video:width"]/@content)');
 			$type = $xpath->evaluate('string(//meta[@property="og:video:type"]/@content)');
@@ -226,7 +236,7 @@ class ff_Instagram extends Plugin
 			$v_url = $xpath->evaluate('string(//meta[@property="og:video:secure_url"]/@content)');
 			$poster = $xpath->evaluate('string(//meta[@property="og:image"]/@content)');
 
-			$arr = array(array($poster, $v_url));
+			if($poster) $arr = array(array($poster, $v_url));//also works when $v_url == NULL
 		}
 
 		return self::create_figure($arr, $caption, $doc);
@@ -414,7 +424,13 @@ class ff_Instagram extends Plugin
 		$link = $article["link"];
 		$cap = $this->urls[$link];
 		if($cap) {
-			$article['content'] = self::scrap_Insta_url($link, $cap);
+			try {
+				$content = self::scrap_Insta_url($link, $cap);
+				if($content) $article['content'] = $content;
+				else user_error("'$link': Couldn't scrap content.");
+			} catch (Exception $e) {
+				user_error("Error for '$link': {$e->getMessage()}");
+			}
 		}
 
 		return $article;
