@@ -87,7 +87,7 @@ class ff_Instagram extends Plugin
 		* Most likely only works on Instagram URLs.
 		*
 		* @param string $url    Should be an Instagram user URL, we assume it is nomalized
-		* @param int $max_id   should be an Instagram post id
+		* @param $max_id   should be an Instagram post id
 		*
 		* @return array    deserialized JSON
 	*/
@@ -252,7 +252,7 @@ class ff_Instagram extends Plugin
 	*/
 
 	static function process_Insta_json($url, $timestamp, $callback, $json=NULL) {
-		if(!$json) $json = self::fetch_Insta_json($url);
+		if(!$json) $json = self::fetch_Insta_json($url); # isn't used ATM, but if it is, wrap it in a try block
 		//var_dump($json);
 		$username = self::get_Insta_username($json);
 
