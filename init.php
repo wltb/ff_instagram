@@ -281,13 +281,10 @@ class ff_Instagram extends Plugin
 							'<a href="https://instagram.com/$1">@$1</a>', $caption);
 				}
 
-				if ($later) {//caption only; is scraped later
-					$item["content"] = $caption;//self::scrap_Insta_url($item["link"], $caption);
-				} else{
-					$item["content"] = self::create_figure(array(array($post["display_src"], ''))
-						, $caption);
-					#sprintf('<p><img src="%s"/></p><p>%s</p>', $post["display_src"], $caption);
-				}
+				//always use image only as placeholder, store caption in "global" variable
+				if($later) $item["_content"] = $caption;//self::scrap_Insta_url($item["link"], $caption);
+				$item["content"] = self::create_figure(array(array($post["display_src"], '')), $caption);
+				#sprintf('<p><img src="%s"/></p><p>%s</p>', $post["display_src"], $caption);
 
 				#var_dump($item);
 				$callback($item, $later); //TODO yield would be nicer
@@ -403,7 +400,7 @@ class ff_Instagram extends Plugin
 
 		$loop_func = function(&$ar, $later) use ($feed, &$items, &$urls, $doc, $xpath) {
 			$it = $feed->new_item($ar);
-			if($later) $urls[$ar['link']] = true;
+			if($later) $urls[$ar['link']] = $ar['_content'];
 			$items [] = new FeedItem_RSS($it->get_item(), $doc, $xpath);
 		};
 
@@ -415,8 +412,9 @@ class ff_Instagram extends Plugin
 
 	function hook_article_filter($article) {
 		$link = $article["link"];
-		if(isset($this->urls[$link])) {
-			$article['content'] = self::scrap_Insta_url($link, $article['content']);
+		$cap = $this->urls[$link];
+		if($cap) {
+			$article['content'] = self::scrap_Insta_url($link, $cap);
 		}
 
 		return $article;
