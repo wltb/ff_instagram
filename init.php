@@ -134,24 +134,17 @@ class ff_Instagram extends Plugin
 	}
 
 	/*
-	 * produces a presentable HTML version (<figure>) of Instagram media.
+	 * inserts Instagram media as children of a DOMElement
 	 *
 	 * $media			array of 2-tuples. If the second component is empty,
 	 * 					the first is assumed to be an image URL, if not, the first
 	 * 					is assumed to be a poster URL and the second a video URL.
-	 * $caption			string, goes to <figcaption>. HTML markup is preserved.
-	 * $doc				DOMDocument, for efficiency reasons?
-	 * $muted			currently not used
-	 *
-	 * returns			a string with HTML markup
-	*/
+	 * $node			Node the media is appended to.
+	 * $muted			currently not used.
+	 */
 
-	static function create_figure(array $media, $caption, DOMDocument $doc=NULL, $muted=TRUE) {
-		if(! $media) return;
-
-		if(! $doc) $doc = new DOMDocument();
-		$fig = $doc->createElement('figure');
-		$fig->setAttribute('insta_gallery', '');
+	static function append_media(array $media, DOMElement $node, $muted=TRUE) {
+		$doc = $node->ownerDocument;
 		foreach($media as $arr) {
 			list($i_url, $v_url) = $arr;
 			if($v_url) {
@@ -168,8 +161,30 @@ class ff_Instagram extends Plugin
 				$med = $doc->createElement('img');
 				$med->setAttribute('src', $i_url);
 			}
-			$fig->appendChild($med);
+			$node->appendChild($med);
 		}
+	}
+
+	const marker = "insta_scrap_later"; //must be lower case for DOM
+
+	/*
+	 * produces a presentable HTML version (<figure>) of Instagram media.
+	 *
+	 * $media			used in append_media
+	 * $caption			string, goes to <figcaption>. HTML markup is preserved.
+	 * $mark			set a marker in the figure
+	 * $muted			currently not used
+	 *
+	 * returns			a string with HTML markup
+	*/
+
+	static function create_figure(array $media, $caption, $mark=false, $muted=TRUE) {
+		$doc = new DOMDocument();
+		$fig = $doc->createElement('figure');
+		$fig->setAttribute('insta_gallery', '');
+		if($mark) $fig->setAttribute(self::marker, '');
+
+		self::append_media($media, $fig, $muted);
 
 		if($caption) {
 			$cap = $doc->createElement('figcaption');
@@ -179,7 +194,7 @@ class ff_Instagram extends Plugin
 			$doc2 = new DOMDocument();
 			$doc2->loadHTML('<?xml version="1.0" encoding="utf-8"?>' . "<p>$caption</p>");
 			$body = $doc2->getElementsByTagName('body')->item(0);
-			$p = $doc->importNode($body->firstChild, true);//libxml wraps caption into a <p>
+			$p = $doc->importNode($body->firstChild, true);
 			while($child = $p->firstChild) $cap->appendChild($child);
 
 			$fig->appendChild($cap);
@@ -188,10 +203,23 @@ class ff_Instagram extends Plugin
 		return $fig->c14n();
 	}
 
+	/* should be used on a DOMElement like the one created in create_figure */
+
+	static function recreate_figure(array $media, DOMElement $fig) {
+		$fig->removeChild($fig->firstChild);//remove img
+		self::append_media($media, $fig);
+
+		$doc = $fig->ownerDocument;
+		$cap = $doc->getElementsByTagName('figcaption')->item(0);
+		if($cap) $fig->appendChild($cap);
+
+		return $doc->saveXML($fig);
+	}
+
 	/*
 		$url should be a URL to an Instagram video/multi* page, but image only should work as well.
 	*/
-	static function scrap_Insta_url($url, $caption) {
+	static function scrap_Insta_url($url) {
 		$doc = new DOMDocument();
 		$html = fetch_file_contents($url);
 		if(! $html) {
@@ -239,7 +267,7 @@ class ff_Instagram extends Plugin
 			if($poster) $arr = array(array($poster, $v_url));//also works when $v_url == NULL
 		}
 
-		return self::create_figure($arr, $caption, $doc);
+		return $arr;
 	}
 
 	/*
@@ -291,13 +319,13 @@ class ff_Instagram extends Plugin
 							'<a href="https://instagram.com/$1">@$1</a>', $caption);
 				}
 
-				//always use image only as placeholder, store caption in "global" variable
-				if($later) $item["_content"] = $caption;//self::scrap_Insta_url($item["link"], $caption);
-				$item["content"] = self::create_figure(array(array($post["display_src"], '')), $caption);
+				//always use image only as placeholder
+				//if($later) $media = self::scrap_Insta_url($item["link"]);
+				$item["content"] = self::create_figure(array(array($post["display_src"], '')), $caption, $later);
 				#sprintf('<p><img src="%s"/></p><p>%s</p>', $post["display_src"], $caption);
 
 				#var_dump($item);
-				$callback($item, $later); //TODO yield would be nicer
+				$callback($item); //TODO yield would be nicer
 			}
 			$info = $media["page_info"];
 			//var_dump(end($media["nodes"])["date"]);
@@ -405,12 +433,9 @@ class ff_Instagram extends Plugin
 
 		$feed = new RSSGenerator_Inst\Feed(array(), $doc);
 		$items = array();
-		$this->urls = array();
-		$urls = & $this->urls;
 
-		$loop_func = function(&$ar, $later) use ($feed, &$items, &$urls, $doc, $xpath) {
+		$loop_func = function(&$ar) use ($feed, &$items, $doc, $xpath) {
 			$it = $feed->new_item($ar);
-			if($later) $urls[$ar['link']] = $ar['_content'];
 			$items [] = new FeedItem_RSS($it->get_item(), $doc, $xpath);
 		};
 
@@ -422,16 +447,23 @@ class ff_Instagram extends Plugin
 
 	function hook_article_filter($article) {
 		$link = $article["link"];
-		$cap = $this->urls[$link];
-		if($cap) {
-			try {
-				$content = self::scrap_Insta_url($link, $cap);
-				if($content) $article['content'] = $content;
-				else user_error("'$link': Couldn't scrap content.");
-			} catch (Exception $e) {
-				user_error("Error for '$link': {$e->getMessage()}");
-			}
+		if(stripos($link, 'instagram.com/p/') === false) return $article;
+
+		$doc = new DOMDocument();
+		@$doc->loadHTML($article['content']);
+
+		$fig = $doc->getElementsByTagName('figure')->item(0);
+		if( ! $fig->hasAttribute(self::marker)) return $article;
+
+		try {
+			$media = self::scrap_Insta_url($link);
+			$fig->removeAttribute(self::marker);
+		} catch (Exception $e) {
+			user_error("Error for '$link': {$e->getMessage()}");
+			return $article;
 		}
+
+		if($media) $article['content'] = self::recreate_figure($media, $fig);
 
 		return $article;
 	}
