@@ -192,7 +192,7 @@ class ff_Instagram extends Plugin
 			//$cap->appendChild($text);
 
 			$doc2 = new DOMDocument();
-			$doc2->loadHTML('<?xml version="1.0" encoding="utf-8"?>' . "<p>$caption</p>");
+			$doc2->loadHTML(self::charset_hack . "<p>$caption</p>");/*'<?xml version="1.0" encoding="utf-8"?>'*/
 			$body = $doc2->getElementsByTagName('body')->item(0);
 			$p = $doc->importNode($body->firstChild, true);
 			while($child = $p->firstChild) $cap->appendChild($child);
@@ -310,7 +310,7 @@ class ff_Instagram extends Plugin
 				$caption = $post["caption"];
 				if($caption) {
 					//sanitize caption
-					$caption = preg_replace('/[^\x{0009}\x{000a}\x{000d}\x{0020}-\x{D7FF}\x{E000}-\x{FFFD}]+/u', ' ', $caption);
+					$caption = preg_replace('/[^\x{0009}\x{000a}\x{000d}\x{0020}-\x{D7FF}\x{E000}-\x{FFFD}\x{10000}-\x{10FFFF}]+/u', ' ', $caption);
 					$caption = trim($caption);
 
 					#heuristic: Suppose that all @xyz strings are Instagram references
@@ -450,7 +450,7 @@ class ff_Instagram extends Plugin
 		if(stripos($link, 'instagram.com/p/') === false) return $article;
 
 		$doc = new DOMDocument();
-		@$doc->loadHTML($article['content']);
+		@$doc->loadHTML(self::charset_hack . $article['content']);
 
 		$fig = $doc->getElementsByTagName('figure')->item(0);
 		if( ! $fig->hasAttribute(self::marker)) return $article;

@@ -124,7 +124,7 @@ class Feed
 }
 
 function sanitize_text($text) {
-	return trim(preg_replace('/[^\x{0009}\x{000a}\x{000d}\x{0020}-\x{D7FF}\x{E000}-\x{FFFD}]+/u', ' ', $text));
+	return trim(preg_replace('/[^\x{0009}\x{000a}\x{000d}\x{0020}-\x{D7FF}\x{E000}-\x{FFFD}\x{10000}-\x{10FFFF}]+/u', ' ', $text));
 }
 # Throws a DOMException if $text is not convertable.
 # Catching is only meaningful in Feed or FeedItem, where more context can be added.
