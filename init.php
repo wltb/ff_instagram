@@ -241,7 +241,7 @@ class ff_Instagram extends Plugin
 			$json = preg_replace('/^\s*window._sharedData\s*=\s*|\s*;\s*$/', '', $script);
 			$json = json_decode($json, true);
 
-			$data = $json["entry_data"]["PostPage"][0]["media"];
+			$data = $json["entry_data"]["PostPage"][0]["graphql"]["shortcode_media"];
 			//unset($data["comments"]);unset($data["likes"]);
 			//var_dump($data);
 			$edges = $data["edge_sidecar_to_children"]["edges"];
