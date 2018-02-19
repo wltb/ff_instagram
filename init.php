@@ -113,7 +113,7 @@ class ff_Instagram extends Plugin
 		$a = json_decode($s, true);
 		//var_dump($a);
 		if(! is_array($a) || ! isset($a['user'])) {
-			$e = new Exception("Couldn't extract json data: '$s'");
+			$e = new Exception("Couldn't extract json data. Possible cause: '" . json_last_error_msg() ."'");
 			throw $e;
 		}
 		return $a["user"];
@@ -383,7 +383,7 @@ class ff_Instagram extends Plugin
 			$this->json = self::decode_Insta_json($feed_data);
 		} catch (Exception $e) {
 			user_error("Error for '$url': {$e->getMessage()}");
-			return '';
+			return "<error>'$url': {$e->getMessage()}</error>\n";
 		}
 		#var_dump($this->json);
 		if(self::get_Insta_private($this->json)) # TODO implement login
