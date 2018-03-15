@@ -112,11 +112,11 @@ class ff_Instagram extends Plugin
 	static function decode_Insta_json($s) {
 		$a = json_decode($s, true);
 		//var_dump($a);
-		if(! is_array($a) || ! isset($a['user'])) {
+		if(! is_array($a) || ! isset($a['graphql']['user'])) {
 			$e = new Exception("Couldn't extract json data. Possible cause: '" . json_last_error_msg() ."'");
 			throw $e;
 		}
-		return $a["user"];
+		return $a['graphql']["user"];
 	}
 
 	/*
@@ -287,27 +287,30 @@ class ff_Instagram extends Plugin
 		if(self::get_Insta_private($json) === TRUE) return; // shouldn't happen here, but whatever
 		$LIMIT = 2000;
 		for($i=0; $i<$LIMIT; $i++) {
-			$media = $json["media"];
+			$media = $json["edge_owner_to_timeline_media"];
+			//var_dump($media);
 
-			foreach($media["nodes"] as $index => $post) {
+			foreach($media["edges"] as $index => $post) {
+				$post = $post["node"];
+				$date = $post["taken_at_timestamp"];
 				/* on fetches that aren't the very first fetch, don't fetch posts
 				that are one week older than the latest db entry,
 				but fetch at least 7 items
 				*/
-				if($timestamp && $timestamp - $post["date"] > 605102 && $index > 6) {
+				if($timestamp && $timestamp - $date > 605102 && $index > 6) {
 					break;
 				}
 				$item = array();
 
-				$item["link"] = 'https://instagram.com/p/' . $post["code"];
+				$item["link"] = 'https://instagram.com/p/' . $post["shortcode"];
 				$item['author'] = $username;
-				$item["pubDate"] = date(DATE_RSS, $post["date"]);
+				$item["pubDate"] = date(DATE_RSS, $date);
 				##comments
-				$item["slash_comments"] = $post["comments"]["count"];
+				$item["slash_comments"] = $post["edge_media_to_comment"]["count"];
 				#content
 				$later = $post['is_video'] || ($post["__typename"] === 'GraphSidecar');
 
-				$caption = $post["caption"];
+				$caption = $post["edge_media_to_caption"]['edges'][0]['node']['text'];
 				if($caption) {
 					//sanitize caption
 					$caption = preg_replace('/[^\x{0009}\x{000a}\x{000d}\x{0020}-\x{D7FF}\x{E000}-\x{FFFD}\x{10000}-\x{10FFFF}]+/u', ' ', $caption);
@@ -321,7 +324,7 @@ class ff_Instagram extends Plugin
 
 				//always use image only as placeholder
 				//if($later) $media = self::scrap_Insta_url($item["link"]);
-				$item["content"] = self::create_figure(array(array($post["display_src"], '')), $caption, $later);
+				$item["content"] = self::create_figure(array(array($post["display_url"], '')), $caption, $later);
 				#sprintf('<p><img src="%s"/></p><p>%s</p>', $post["display_src"], $caption);
 
 				#var_dump($item);
