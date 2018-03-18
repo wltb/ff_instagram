@@ -63,17 +63,20 @@ class ff_Instagram extends Plugin
 	/*
 	 * Takes a URL and if it determines it to be an Instagram user URL, returns
 	 * a normalized version of it. This is useful since ttrss determines
-	 * uniquiness of feeds by the fetch_url (and owner_id).
+	 * uniqueness of feeds by the fetch_url (and owner_id).
 	 *
 	 * If the function thinks its argument doesn't belong to an Instagram user,
 	 * it returns NULL, so it's also useful to check if the plugin should hook in.
+	 *
+	 * hashtag or locations are not supported ATM since this would require to do
+	 * some things differently (JSON names, RSS author required a lookup etc)
 	*/
 
 	static function normalize_Insta_user_url($url) {
 		$path = parse_url($url, PHP_URL_PATH);
 		$host = parse_url($url, PHP_URL_HOST);
 
-		if(! preg_match('/(^|\.)instagram\.com$/i', $host)) return;
+		if(! preg_match('/^(www\.)?instagram\.com$/i', $host)) return;  // see issue #1
 
 		$p_comps = array_filter(explode("/", $path, 3));
 		$user = strtolower(array_shift($p_comps));  // instagram is case insensitive about user names
