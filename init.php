@@ -86,10 +86,10 @@ class ff_Instagram extends Plugin
 	}
 
 	/*
-		* Takes a URL, loads and tries to extract a serialzed JSON.
+		* Takes a URL, loads and tries to extract a serialized JSON.
 		* Most likely only works on Instagram URLs.
 		*
-		* @param string $url    Should be an Instagram user URL, we assume it is nomalized
+		* @param string $url    Should be an Instagram user URL, we assume it is normalized
 		* @param $max_id   should be an Instagram post id
 		*
 		* @return array    deserialized JSON
@@ -255,7 +255,7 @@ class ff_Instagram extends Plugin
 				$i_url = $node["display_url"];
 				$val = NULL;
 				if($node["is_video"]) $val = $node["video_url"];
-				$arr[] = array($i_url, $val);
+				$arr[] = [$i_url, $val];
 			}
 		}
 
@@ -267,22 +267,22 @@ class ff_Instagram extends Plugin
 			$v_url = $xpath->evaluate('string(//meta[@property="og:video:secure_url"]/@content)');
 			$poster = $xpath->evaluate('string(//meta[@property="og:image"]/@content)');
 
-			if($poster) $arr = array(array($poster, $v_url));//also works when $v_url == NULL
+			if($poster) $arr = [[$poster, $v_url]];//also works when $v_url == NULL
 		}
 
 		return $arr;
 	}
 
 	/*
-		* Takes an Instagram url, an integer timestamp, a callback function and
+		* Takes an Instagram url, an integer timestamp and
 		* optionally a json array as returned by fetch/decode_Insta_json for caching reasons.
 
-		* Fetches Instagram entries associated with the url and prepares them
+		* Fetches Instagram posts associated with the url and prepares them
 		* for usage in RSS: Each post data/metadata is stored in an array that
-		* can be used for RSSGenerator's Item class, and callback is applied to it.
+		* can be used for RSSGenerator's Item class, and is yield'ed.
 	*/
 
-	static function process_Insta_json($url, $timestamp, $callback, $json=NULL) {
+	static function process_Insta_json($url, $timestamp, $json=NULL) {
 		if(!$json) $json = self::fetch_Insta_json($url); # isn't used ATM, but if it is, wrap it in a try block
 		//var_dump($json);
 		$username = self::get_Insta_username($json);
@@ -327,11 +327,11 @@ class ff_Instagram extends Plugin
 
 				//always use image only as placeholder
 				//if($later) $media = self::scrap_Insta_url($item["link"]);
-				$item["content"] = self::create_figure(array(array($post["display_url"], '')), $caption, $later);
+				$item["content"] = self::create_figure([[$post["display_url"], '']], $caption, $later);
 				#sprintf('<p><img src="%s"/></p><p>%s</p>', $post["display_src"], $caption);
 
 				#var_dump($item);
-				$callback($item); //TODO yield would be nicer
+				yield $item;
 			}
 			$info = $media["page_info"];
 			//var_dump(end($media["nodes"])["date"]);
@@ -440,12 +440,10 @@ class ff_Instagram extends Plugin
 		$feed = new RSSGenerator_Inst\Feed(array(), $doc);
 		$items = array();
 
-		$loop_func = function(&$ar) use ($feed, &$items, $doc, $xpath) {
+		foreach(self::process_Insta_json($this->url, $this->ts, $this->json) as $ar) {
 			$it = $feed->new_item($ar);
 			$items [] = new FeedItem_RSS($it->get_item(), $doc, $xpath);
-		};
-
-		self::process_Insta_json($this->url, $this->ts, $loop_func, $this->json);
+		}
 		//var_dump($items);
 
 		$p_items->setValue($rss, $items);

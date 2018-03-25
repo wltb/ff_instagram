@@ -2,6 +2,7 @@ ff_Instagram
 ============
 
 Plugin for [Tiny Tiny RSS](https://tt-rss.org/) that allows to fetch posts from Instagram user sites.
+The plugin needs PHP 5.5 or a newer version.
 
 ## Installation
 This should be done on the command line
