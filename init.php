@@ -337,6 +337,7 @@ class ff_Instagram extends Plugin
 			//var_dump(end($media["nodes"])["date"]);
 			//var_dump($media["nodes"][count($media["nodes"]) - 1]["date"]);
 
+			//this is broken ATM.
 			# only continue fetching if there are no entries in the DB (most likely very first fetch)
 			if($timestamp || ! $info["has_next_page"]) break;
 
@@ -372,11 +373,28 @@ class ff_Instagram extends Plugin
 		return $feed->saveXML();
 	}
 
+	static function scrap_insta_user_json($html) {
+		$doc = new DOMDocument();
+		@$doc->loadHTML($html);
+		#echo $doc->saveXML();
+		$xpath = new DOMXPath($doc);
+
+		$script = $xpath->query('//script[@type="text/javascript" and contains(., "window._sharedData")]');
+		//var_dump($script);
+		if($script->length === 1) {
+			$script = $script->item(0)->textContent;
+			$json = preg_replace('/^\s*window._sharedData\s*=\s*|\s*;\s*$/', '', $script);
+			$json = json_decode($json, true);
+
+			return $json["entry_data"]["ProfilePage"][0]["graphql"]["user"];
+		}
+	}
+
 	function hook_fetch_feed($feed_data, &$fetch_url) {
 		$url = self::normalize_Insta_user_url($fetch_url);
 
 		if(! $url || $feed_data) return $feed_data;
-		else $fetch_url = $url . '?__a=1';
+		//else $fetch_url = $url . '?__a=1';
 
 		return '';
 	}
@@ -386,7 +404,7 @@ class ff_Instagram extends Plugin
 		if(! $url) return $feed_data;
 
 		try {
-			$this->json = self::decode_Insta_json($feed_data);
+			$this->json = self::scrap_insta_user_json($feed_data);
 		} catch (Exception $e) {
 			user_error("Error for '$url': {$e->getMessage()}");
 			return "<error>'$url': {$e->getMessage()}</error>\n";
