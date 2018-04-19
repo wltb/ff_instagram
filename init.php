@@ -23,7 +23,7 @@ class ff_Instagram extends Plugin
 			user_error('Hooks not registered. Needs trunk or version > 1.12', E_USER_NOTICE);
 			return;
 		}
-		$host->add_hook($host::HOOK_FETCH_FEED, $this);
+		//$host->add_hook($host::HOOK_FETCH_FEED, $this);
 		$host->add_hook($host::HOOK_FEED_FETCHED, $this);
 		$host->add_hook($host::HOOK_SUBSCRIBE_FEED, $this);
 		$host->add_hook($host::HOOK_FEED_PARSED, $this);
@@ -219,58 +219,115 @@ class ff_Instagram extends Plugin
 		return $doc->saveXML($fig);
 	}
 
-	/*
-		$url should be a URL to an Instagram video/multi* page, but image only should work as well.
-	*/
-	static function scrap_Insta_url($url) {
+
+	static function scrap_insta_user_json($html) {
 		$doc = new DOMDocument();
-		$html = fetch_file_contents($url);
-		if(! $html) {
-			global $fetch_last_error;
-			global $fetch_last_error_code;
-			$e = new Exception("'$fetch_last_error' occured for '$url'", $fetch_last_error_code);
-			$e->url = $url;
-			throw $e;
-		}
 		@$doc->loadHTML($html);
 		#echo $doc->saveXML();
 		$xpath = new DOMXPath($doc);
-		$arr = array();
 
-		$script = $xpath->query('//script[@type="text/javascript" and contains(., "GraphSidecar")]');
+		$script = $xpath->query('//script[@type="text/javascript" and contains(., "window._sharedData")]');
 		//var_dump($script);
 		if($script->length === 1) {
 			$script = $script->item(0)->textContent;
 			$json = preg_replace('/^\s*window._sharedData\s*=\s*|\s*;\s*$/', '', $script);
 			$json = json_decode($json, true);
 
-			$data = $json["entry_data"]["PostPage"][0]["graphql"]["shortcode_media"];
-			//unset($data["comments"]);unset($data["likes"]);
-			//var_dump($data);
-			$edges = $data["edge_sidecar_to_children"]["edges"];
-			if(!$edges || !is_array($edges)) user_error("'$url': Something wrong with js hack.");
+			return $json["entry_data"]["ProfilePage"][0]["graphql"]["user"];
+		}
+	}
 
-			foreach($edges as $edge) {
-				$node = $edge['node']; //really...
-				$i_url = $node["display_url"];
-				$val = NULL;
-				if($node["is_video"]) $val = $node["video_url"];
-				$arr[] = [$i_url, $val];
+	/*
+		extract useable json out of instagram html pages.
+		This is very prone to breakage.
+		Can be used for single posts or user main pages ATM.
+	*/
+
+	static function scrap_insta_js($html) {
+		$doc = new DOMDocument();
+		@$doc->loadHTML($html);
+		#echo $doc->saveXML();
+		$xpath = new DOMXPath($doc);
+
+		$script = $xpath->query('//script[@type="text/javascript" and contains(., "window._sharedData")]');
+		//var_dump($script);
+		if($script->length === 1) {
+			$script = $script->item(0)->textContent;
+			$json = preg_replace('/^\s*window._sharedData\s*=\s*|\s*;\s*$/', '', $script);
+			$json = json_decode($json, true);
+			if(! $json) {
+				throw new Exception("Couldn't decode json. Possible Reason: '" . json_last_error_msg() . "'.");
 			}
+
+			return $json;
+		} else throw new Exception("Couldn't find script.");
+	}
+
+	/*
+		$url should be a URL to an Instagram video/multi* page (/p/.+), but image only should work as well.
+
+		TODO error reporting is a bit wordy/unnecessary (404s),
+		but that shouldn't matter too much because it's called only/mostly on fresh stuff.
+	*/
+	static function scrap_Insta_media_url($url) {
+		global $fetch_last_error;
+		global $fetch_last_error_code;
+
+		$url_ = "$url?__a=1";
+		$json = fetch_file_contents($url_);
+		if(!$json) user_error("'$fetch_last_error' occured for '$url_'");
+		$data = json_decode($json, true);
+
+		if(!$data) {//fallback
+			user_error("Couldn't decode json for '$url_'. Trying to use fallback.");
+			$html = fetch_file_contents($url);
+			if(! $html) {
+				$e = new Exception("'$fetch_last_error' occured for '$url'", $fetch_last_error_code);
+				$e->url = $url;
+				throw $e;
+			}
+			$json = self::scrap_insta_js($html);//could throw exception
+			$data = $json["entry_data"]["PostPage"][0];
 		}
 
-		if(! $arr) {//fallback
-			/*$height = $xpath->evaluate('string(//meta[@property="og:video:height"]/@content)');
-			$width = $xpath->evaluate('string(//meta[@property="og:video:width"]/@content)');
+		$media = array();
+
+		$data = $data["graphql"]["shortcode_media"];
+		#unset($data["edge_media_to_comment"]); unset($data["edge_media_preview_like"]);
+		#var_dump($data);
+
+		switch($data['__typename']) {# below works when video_url isn't there
+		case "GraphImage": case "GraphVideo":
+			$media [] = [$data['display_url'], $data["video_url"]];
+			break;
+		case "GraphSidecar":
+			$edges = $data["edge_sidecar_to_children"]["edges"];
+			foreach($edges as $edge) {
+				$node = $edge['node'];//really...
+				$media [] = [$node['display_url'], $node["video_url"]];
+			}
+			break;
+		default:
+			user_error("No typename for '$url'. Format changed?");
+		}
+
+		if(! $media) {//fallback, now for real. Doesn't work for albums
+			user_error("json scraping doesn't work for '$url'. Using Fallback.");
+			$doc = new DOMDocument();
+			@$doc->loadHTML($html);
+			#echo $doc->saveXML();
+			$xpath = new DOMXPath($doc);
+
+			/*
 			$type = $xpath->evaluate('string(//meta[@property="og:video:type"]/@content)');
 			*/
 			$v_url = $xpath->evaluate('string(//meta[@property="og:video:secure_url"]/@content)');
 			$poster = $xpath->evaluate('string(//meta[@property="og:image"]/@content)');
 
-			if($poster) $arr = [[$poster, $v_url]];//also works when $v_url == NULL
+			if($poster) $media = [[$poster, $v_url]];//also works when $v_url == NULL
 		}
 
-		return $arr;
+		return $media;
 	}
 
 	/*
@@ -326,7 +383,7 @@ class ff_Instagram extends Plugin
 				}
 
 				//always use image only as placeholder
-				//if($later) $media = self::scrap_Insta_url($item["link"]);
+				//if($later) $media = self::scrap_Insta_media_url($item["link"]);
 				$item["content"] = self::create_figure([[$post["display_url"], '']], $caption, $later);
 				#sprintf('<p><img src="%s"/></p><p>%s</p>', $post["display_src"], $caption);
 
@@ -373,28 +430,13 @@ class ff_Instagram extends Plugin
 		return $feed->saveXML();
 	}
 
-	static function scrap_insta_user_json($html) {
-		$doc = new DOMDocument();
-		@$doc->loadHTML($html);
-		#echo $doc->saveXML();
-		$xpath = new DOMXPath($doc);
 
-		$script = $xpath->query('//script[@type="text/javascript" and contains(., "window._sharedData")]');
-		//var_dump($script);
-		if($script->length === 1) {
-			$script = $script->item(0)->textContent;
-			$json = preg_replace('/^\s*window._sharedData\s*=\s*|\s*;\s*$/', '', $script);
-			$json = json_decode($json, true);
-
-			return $json["entry_data"]["ProfilePage"][0]["graphql"]["user"];
-		}
-	}
-
+	//is not registered and hence not used ATM
 	function hook_fetch_feed($feed_data, &$fetch_url) {
 		$url = self::normalize_Insta_user_url($fetch_url);
 
 		if(! $url || $feed_data) return $feed_data;
-		//else $fetch_url = $url . '?__a=1';
+		else $fetch_url = $url . '?__a=1';
 
 		return '';
 	}
@@ -478,7 +520,7 @@ class ff_Instagram extends Plugin
 		if( ! $fig->hasAttribute(self::marker)) return $article;
 
 		try {
-			$media = self::scrap_Insta_url($link);
+			$media = self::scrap_Insta_media_url($link);
 			$fig->removeAttribute(self::marker);
 		} catch (Exception $e) {
 			user_error("Error for '$link': {$e->getMessage()}");
