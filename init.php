@@ -86,44 +86,9 @@ class ff_Instagram extends Plugin
 	}
 
 	/*
-		* Takes a URL, loads and tries to extract a serialized JSON.
-		* Most likely only works on Instagram URLs.
-		*
-		* @param string $url    Should be an Instagram user URL, we assume it is normalized
-		* @param $max_id   should be an Instagram post id
-		*
-		* @return array    deserialized JSON
-	*/
-	static function fetch_Insta_json($url, $max_id=NULL) {
-		#$url = self::normalize_Insta_user_url($url);
-		$url_m = "$url?__a=1";
-		if($max_id) $url_m .= "&max_id=$max_id";
-
-		$json = fetch_file_contents($url_m);
-		#echo $json;
-		if (! $json) {
-			global $fetch_last_error;
-			$e = new Exception("'$fetch_last_error' occured for '$url_m'");
-			$e->url = $url;
-			$e->fetch_last_error = $fetch_last_error;
-			throw $e;
-		}
-
-		return self::decode_Insta_json($json);
-	}
-
-	static function decode_Insta_json($s) {
-		$a = json_decode($s, true);
-		//var_dump($a);
-		if(! is_array($a) || ! isset($a['graphql']['user'])) {
-			$e = new Exception("Couldn't extract json data. Possible cause: '" . json_last_error_msg() ."'");
-			throw $e;
-		}
-		return $a['graphql']["user"];
-	}
-
-	/*
-		* These functions works on an array as returned by fetch/decode_Insta_json
+	These functions works on an array as returned by
+	scrap_insta_user_json (first part)
+	or fetch_insta_user_json
 	*/
 
 	static function get_Insta_username($json) {
@@ -189,6 +154,7 @@ class ff_Instagram extends Plugin
 
 		self::append_media($media, $fig, $muted);
 
+		//TODO better formatting? line breaks to <p>s etc?!?
 		if($caption) {
 			$cap = $doc->createElement('figcaption');
 			//$text = $doc->createTextNode($caption); we want to preserve hyperlinks, so...
@@ -221,20 +187,13 @@ class ff_Instagram extends Plugin
 
 
 	static function scrap_insta_user_json($html) {
-		$doc = new DOMDocument();
-		@$doc->loadHTML($html);
-		#echo $doc->saveXML();
-		$xpath = new DOMXPath($doc);
+		$json = self::scrap_insta_js($html);
 
-		$script = $xpath->query('//script[@type="text/javascript" and contains(., "window._sharedData")]');
-		//var_dump($script);
-		if($script->length === 1) {
-			$script = $script->item(0)->textContent;
-			$json = preg_replace('/^\s*window._sharedData\s*=\s*|\s*;\s*$/', '', $script);
-			$json = json_decode($json, true);
+		$meta = $json;
+		$json = $meta["entry_data"]["ProfilePage"][0]["graphql"]["user"];
+		unset($meta["entry_data"]["ProfilePage"][0]["graphql"]["user"]);
 
-			return $json["entry_data"]["ProfilePage"][0]["graphql"]["user"];
-		}
+		return [$json, $meta];
 	}
 
 	/*
@@ -331,21 +290,89 @@ class ff_Instagram extends Plugin
 	}
 
 	/*
+	here a bit of magic happens. We need to set a custom HTTP header to query
+	and use magic ids. docs:
+	https://github.com/ping/instagram_private_api
+	https://github.com/postaddictme/instagram-php-scraper
+	https://github.com/rarcega/instagram-scraper
+	https://stackoverflow.com/q/49786980
+
+	TODO make graphql queries more abstract, also use the curl channel for video/album fetching
+	TODO maybe the __a=1 trick can be made to work again with another magic header
+	*/
+	static $curl_header_keep_alive = array(
+					'Connection: Keep-Alive',
+					'Keep-Alive: 300');
+
+	static function fetch_insta_user_json($user_id, $meta, $end_cursor) {
+		static $ch;
+		if(! function_exists(curl_init)) throw new Exception("curl needed");
+
+		if(!$ch) {
+			$ch = curl_init();
+			$opt = array(CURLOPT_RETURNTRANSFER => true,
+					CURLOPT_USERAGENT => SELF_USER_AGENT,
+					CURLOPT_FOLLOWLOCATION => true,
+					CURLOPT_MAXREDIRS => 20,
+					CURLOPT_FAILONERROR => false,
+					CURLOPT_FRESH_CONNECT => false,
+					CURLOPT_SSL_VERIFYPEER => false,
+					CURLOPT_HTTPAUTH => CURLAUTH_ANY,
+					CURLOPT_COOKIEJAR => "/dev/null",
+					CURLOPT_TIMEOUT => 10,
+					CURLOPT_CONNECTTIMEOUT => 10,
+					CURLOPT_HEADER => false,
+					CURLOPT_NOBODY => false,
+					);
+			curl_setopt_array($ch, $opt);
+			if (defined('_CURL_HTTP_PROXY')) {
+				curl_setopt($ch, CURLOPT_PROXY, _CURL_HTTP_PROXY);
+			}
+		}
+
+		//50 is server-side limit
+		$variables = ["id" => $user_id, "first" => 50, "after" => $end_cursor];
+		$variables = json_encode($variables);
+		$rhx_gis = $meta["rhx_gis"];
+		$hash = md5("$rhx_gis:$variables");
+
+		curl_setopt($ch, CURLOPT_HTTPHEADER, array_merge(self::$curl_header_keep_alive, ["X-Instagram-GIS: $hash"]));
+
+		$api_url = 'https://www.instagram.com/graphql/query/';
+
+		//magic number. May be deprecated?
+		$url = "$api_url?query_id=17880160963012870&variables=$variables";
+		curl_setopt($ch, CURLOPT_URL, $url);
+
+		@$result = curl_exec($ch);
+		$http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+		if($http_code == 200) $result = json_decode($result, true);
+		else {
+			throw new Exception("HTTP Error $http_code. Server response: '$result'", $http_code);
+		}
+
+		return $result["data"]["user"];
+	}
+
+	/*
 		* Takes an Instagram url, an integer timestamp and
-		* optionally a json array as returned by fetch/decode_Insta_json for caching reasons.
+		* optionally two deserialized json arrays
+		* as returned by scrap_insta_user_json for caching reasons.
+		* (Note: ATM, the first one is not optional)
 
 		* Fetches Instagram posts associated with the url and prepares them
 		* for usage in RSS: Each post data/metadata is stored in an array that
 		* can be used for RSSGenerator's Item class, and is yield'ed.
 	*/
 
-	static function process_Insta_json($url, $timestamp, $json=NULL) {
-		if(!$json) $json = self::fetch_Insta_json($url); # isn't used ATM, but if it is, wrap it in a try block
-		//var_dump($json);
+	static function process_Insta_json($url, $timestamp, $json=NULL, $meta=NULL) {
+		#if(!$json) $json = self::fetch_Insta_json($url); # isn't used ATM, but if it is, wrap it in a try block
+
 		$username = self::get_Insta_username($json);
+		$insta_user_id = $json['id'];
 
 		if(self::get_Insta_private($json) === TRUE) return; // shouldn't happen here, but whatever
-		$LIMIT = 2000;
+		$LIMIT = 100;
 		for($i=0; $i<$LIMIT; $i++) {
 			$media = $json["edge_owner_to_timeline_media"];
 			//var_dump($media);
@@ -391,15 +418,13 @@ class ff_Instagram extends Plugin
 				yield $item;
 			}
 			$info = $media["page_info"];
-			//var_dump(end($media["nodes"])["date"]);
-			//var_dump($media["nodes"][count($media["nodes"]) - 1]["date"]);
 
-			//this is broken ATM.
 			# only continue fetching if there are no entries in the DB (most likely very first fetch)
 			if($timestamp || ! $info["has_next_page"]) break;
 
 			try {
-				$json = self::fetch_Insta_json($url, $info["end_cursor"]);
+				#var_dump($meta);
+				$json = self::fetch_insta_user_json($insta_user_id, $meta, $info["end_cursor"]);
 			} catch (Exception $e) {
 				user_error("Error for '$url', end_cursor '{$info["end_cursor"]}': " . $e->getMessage());
 				break;
@@ -411,21 +436,37 @@ class ff_Instagram extends Plugin
 			<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
 		</head>';
 
+	static function get_insta_user_metadata_html($html) {
+		$doc = new DOMDocument();
+		@$doc->loadHTML(self::charset_hack . $html);
+		$xpath = new DOMXPath($doc);
+		$title = $xpath->evaluate('string(//meta[@property="og:title"]/@content)');
+		$title = preg_replace("/ photos and videos$/", '', $title);
+
+		$icon = $xpath->evaluate('string(//meta[@property="og:image"]/@content)');
+
+		return [$title, $icon, NULL];
+	}
+
+	static function get_insta_user_metadata_json($json) {
+		$username = self::get_Insta_username($json);
+		$title = "$username • Instagram";
+		$bio = $json["biography"];
+		$icon = $json["profile_pic_url"];
+
+		return [$title, $icon, $bio];
+	}
+
 	function hook_subscribe_feed($contents, &$url) {
+		//TODO find the right ttrss hook for site url and feed title
 		$n_url = self::normalize_Insta_user_url($url);
 		if(! $n_url) return $contents;
 
 		$url = $n_url;
 
-		$doc = new DOMDocument();
-		@$doc->loadHTML(self::charset_hack . $contents);
-		$xpath = new DOMXPath($doc);
-
 		$feed = new RSSGenerator_Inst\Feed();
 		$feed->link = $url;
-		$title = $xpath->evaluate('string(//meta[@property="og:title"]/@content)');
-		$feed->title = preg_replace("/ photos and videos$/", '', $title);
-		#$feed->description = $xpath->evaluate('string(//meta[@property="og:description"]/@content)');
+		list($feed->title,,) = self::get_insta_user_metadata_html($contents);
 
 		return $feed->saveXML();
 	}
@@ -445,24 +486,24 @@ class ff_Instagram extends Plugin
 		$url = self::normalize_Insta_user_url($fetch_url);
 		if(! $url) return $feed_data;
 
+		//TODO maybe put the data in the feed itself instead of holding it in the object
 		try {
-			$this->json = self::scrap_insta_user_json($feed_data);
+			list($this->json, $this->meta) = self::scrap_insta_user_json($feed_data);
 		} catch (Exception $e) {
 			user_error("Error for '$url': {$e->getMessage()}");
 			return "<error>'$url': {$e->getMessage()}</error>\n";
 		}
-		#var_dump($this->json);
+		#var_dump($this->json, $this->meta);
 		if(self::get_Insta_private($this->json)) # TODO implement login
 			return "<error>'$url': Page is private</error>\n";
 
 		$feed = new RSSGenerator_Inst\Feed();
 
-		$username = self::get_Insta_username($this->json);
 		$feed->link = $url;
-		$feed->title = "$username • Instagram";
-		$feed->description = $this->json["biography"];
+		list($feed->title, $icon_url,
+			$feed->description) = self::get_insta_user_metadata_json($this->json);
 
-		self::check_feed_icon($this->json["profile_pic_url"], $feed_id);
+		self::check_feed_icon($icon_url, $feed_id);
 
 		//check latest entry in DB
 		$db = $this->host->get_dbh();
@@ -473,8 +514,6 @@ class ff_Instagram extends Plugin
 
 		if($ts) $this->ts = @strtotime($ts);
 		else $this->ts = false;
-
-		$this->url = $url;
 
 		return $feed->saveXML();
 	}
@@ -500,7 +539,7 @@ class ff_Instagram extends Plugin
 		$feed = new RSSGenerator_Inst\Feed(array(), $doc);
 		$items = array();
 
-		foreach(self::process_Insta_json($this->url, $this->ts, $this->json) as $ar) {
+		foreach(self::process_Insta_json($rss->get_link(), $this->ts, $this->json, $this->meta) as $ar) {
 			$it = $feed->new_item($ar);
 			$items [] = new FeedItem_RSS($it->get_item(), $doc, $xpath);
 		}
@@ -535,3 +574,4 @@ class ff_Instagram extends Plugin
 
 }
 ?>
+
