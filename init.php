@@ -208,7 +208,7 @@ class ff_Instagram extends Plugin
 		#echo $doc->saveXML();
 		$xpath = new DOMXPath($doc);
 
-		$script = $xpath->query('//script[@type="text/javascript" and contains(., "window._sharedData")]');
+		$script = $xpath->query('//script[@type="text/javascript" and contains(., "window._sharedData = ")]');
 		//var_dump($script);
 		if($script->length === 1) {
 			$script = $script->item(0)->textContent;
