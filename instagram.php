@@ -71,11 +71,11 @@ class Post {
 			# heuristic: Suppose that all @xyz strings are Instagram references
 			# and turn them into hyperlinks.
 			$line = preg_replace('/(^|\s)@(\S+)/u',
-						'$1<a href="https://instagram.com/$2">@$2</a>', $line);
+						'$1<a href="/$2">@$2</a>', $line);
 
 			# tags
 			$line = preg_replace('/#(\w+)/u',
-						'<a href="https://instagram.com/explore/tags/$1">#$1</a>', $line);
+						'<a href="/explore/tags/$1">#$1</a>', $line);
 
 			if($line) $line = "<span>$line</span>";
 			$s .= "$line<br>\n";
@@ -99,6 +99,18 @@ class Post {
 
 		$doc = new DOMDocument();
 		$doc->loadHTML(self::charset_hack . "<p>$text</p>");
+
+		# markup anchors
+		$links = $doc->getElementsbyTagName("a");
+		foreach($links as $a) {
+			if($a->hasAttribute('href')) {
+				$url = rewrite_relative_url('https://instagram.com/', $a->getAttribute('href'));
+				$a->setAttribute('href', $url);
+			}
+			$a->setAttribute('rel', 'noopener noreferrer');
+			$a->setAttribute("target", "_blank");
+		}
+
 		$body = $doc->getElementsByTagName('body')->item(0);
 		$p = $cap->ownerDocument->importNode($body->firstChild, true);
 
