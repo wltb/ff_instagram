@@ -71,11 +71,11 @@ class Post {
 			# heuristic: Suppose that all @xyz strings are Instagram references
 			# and turn them into hyperlinks.
 			$line = preg_replace('/(^|\s)@(\S+)/u',
-						'$1<a href="/$2">@$2</a>', $line);
+						'$1<a href="https://instagram.com/$2">@$2</a>', $line);
 
 			# tags
 			$line = preg_replace('/#(\w+)/u',
-						'<a href="/explore/tags/$1">#$1</a>', $line);
+						'<a href="https://instagram.com/explore/tags/$1">#$1</a>', $line);
 
 			if($line) $line = "<span>$line</span>";
 			$s .= "$line<br>\n";
