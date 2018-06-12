@@ -20,10 +20,22 @@ namespace PI\Instagram;
 
 use DOMElement, DOMXPath, DOMDocument, Exception;
 
+class MissingKeyException extends Exception{
+	function __construct($key) {
+		parent::__construct("'$key' not in JSON.");
+	}
+}
+
 class Post {
 	private $date, $url, $comments, $content;
 
 	function __construct($post) {
+		foreach(["taken_at_timestamp", "shortcode", "display_url"] as $s) {
+			if(! isset($post[$s])) {
+				throw new MissingKeyException($s);
+			}//TODO catch this
+		}
+
 		$this->date = $post["taken_at_timestamp"];
 		$this->url = 'https://instagram.com/p/' . $post["shortcode"];
 		$this->comments = $post["edge_media_to_comment"]["count"];
@@ -51,7 +63,7 @@ class Post {
 		$caption = trim($caption);
 
 		# \n -> <br>
-		$caption = preg_replace("/\n+$/", '', $caption);
+		$caption = preg_replace("/\n*$/", '', $caption);
 		$lines = explode("\n", $caption);
 		//var_dump($caption, $lines);
 		$s = "";
@@ -66,9 +78,9 @@ class Post {
 						'<a href="/explore/tags/$1">#$1</a>', $line);
 
 			if($line) $line = "<span>$line</span>";
-			$s .= "$line<br />\n";
+			$s .= "$line<br>\n";
 		}
-		$caption = preg_replace("#<br />\n$#", '', $s);
+		$caption = preg_replace("#<br>\n$#", '', $s);
 
 		return $caption;
 	}
@@ -166,19 +178,7 @@ class Post {
 		return $fig->c14n();
 	}
 
-	/* should be used on a DOMElement like the one created in create_figure */
-
-	static function recreate_figure(array $media, DOMElement $fig) {
-		$fig->removeChild($fig->firstChild);//remove img
-		self::append_media($media, $fig);
-
-		$doc = $fig->ownerDocument;
-		$cap = $doc->getElementsByTagName('figcaption')->item(0);
-		if($cap) $fig->appendChild($cap);
-
-		return $doc->saveXML($fig);
-	}
-
+	/* should be used on HTML like the one created in create_figure */
 
 	static function reformat_content($content, $url) {
 		$doc = new DOMDocument();
@@ -187,12 +187,20 @@ class Post {
 		$fig = $doc->getElementsByTagName('figure')->item(0);
 		if( ! $fig->hasAttribute(self::marker)) return $content;
 
-		$media = Loader::scrap_Insta_media_url($url);  //could throw Exception
+		$media = Loader::scrap_Insta_media_url($url);  // could throw Exception
 
 		if($media) {
 			$fig->removeAttribute(self::marker);
-			return self::recreate_figure($media, $fig);
-		}
+
+			$fig->removeChild($fig->firstChild);//remove img
+			self::append_media($media, $fig);
+
+			//caption below media
+			$cap = $doc->getElementsByTagName('figcaption')->item(0);
+			if($cap) $fig->appendChild($cap);
+
+			return $doc->saveHTML($fig);
+		} else return $content;  // shouldn't happen, but to be safe...
 	}
 }
 
@@ -202,7 +210,7 @@ class Loader{
 	private static $rhx_gis;
 	private function __construct($meta) {
 		self::$rhx_gis = $meta["rhx_gis"];
-		//if(! self::$rhx_gis) throw new Exception("No meta information");
+		if(! self::$rhx_gis) user_error("Meta information missing.");
 	}
 
 	static function get_instance($meta) {
@@ -267,10 +275,12 @@ class Loader{
 
 		@$result = curl_exec($ch);
 		$http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-		if($http_code == 200) $result = json_decode($result, true);//TODO error handling
-		else {
+		if($http_code !== 200) {
 			throw new Exception("HTTP Error $http_code. Server response: '$result'", $http_code);
 		}
+
+		$result = json_decode($result, true);
+		if(! $result ) throw new Exception("Couldn't decode json. Possible Reason: '" . json_last_error_msg() . "'.");
 
 		return $result;
 	}
@@ -301,10 +311,24 @@ class Loader{
 				throw new Exception("Couldn't decode json. Possible Reason: '" . json_last_error_msg() . "'.");
 			}
 
-			self::get_instance($json);
-
 			return $json;
 		} else throw new Exception("Couldn't find script.");
+	}
+
+	/*
+		helper function for below
+	*/
+	private static function check_insta_media($json) {
+		//hope this catches all errors...
+		$im = $json['display_url'];
+		$vid = $json["video_url"];
+
+		if(! isset($json["is_video"])) user_error("Key 'is_video' is missing. Fomat changed?");
+
+		if( ! $vid && $json["is_video"]) throw new Exception("Missing Key for video");
+		if( ! $im && ! $json["is_video"] && isset($json["is_video"])) throw new Exception("Missing Key for image");
+
+		if($im || $vid) return [$im, $vid];
 	}
 
 	/*
@@ -321,45 +345,68 @@ class Loader{
 
 		$url_ = "$url?__a=1";
 		$json = fetch_file_contents($url_);
-		if(!$json) user_error("'$fetch_last_error' occured for '$url_'");
+		if(! $json) user_error("'$fetch_last_error' occured for '$url_'");
 		$data = json_decode($json, true);
 
 		if(!$data) {//fallback
-			user_error("Couldn't decode json for '$url_'. Trying to use fallback.");
+			user_error("Couldn't decode json for '$url_', error message '" .
+			json_last_error_msg() . "'. Trying to use fallback.");
+
+			# we fail here because the other stuff below depends on this
 			$html = fetch_file_contents($url);
-			if(! $html) {
-				$e = new Exception("'$fetch_last_error' occured for '$url'", $fetch_last_error_code);
-				$e->url = $url;
-				throw $e;
+			if(! $html) throw new Exception("'$fetch_last_error' occured for '$url'", $fetch_last_error_code);
+
+			try {
+				$json = self::scrap_insta_js($html);
+				$data = $json["entry_data"]["PostPage"][0];
+				if(! $data) throw new MissingKeyException('["entry_data"]["PostPage"][0]');
+			} catch (Exception $e) {
+				user_error("Something wrong for '$url': " . $e->getMessage());
+				$data = [];
 			}
-			$json = self::scrap_insta_js($html);  // can throw exception
-			$data = $json["entry_data"]["PostPage"][0];
 		}
 
-		$media = array();
+		$media = [];
 
+		//missing keys will show up in the switch default eventually
 		$data = $data["graphql"]["shortcode_media"];
 		#unset($data["edge_media_to_comment"]); unset($data["edge_media_preview_like"]);
 		#var_dump($data);
 
-		switch($data['__typename']) {# below works when video_url isn't there
+		switch($data['__typename']) {
 		case "GraphImage": case "GraphVideo":
-			$media [] = [$data['display_url'], $data["video_url"]];
+			try {
+				$med = self::check_insta_media($data);
+			} catch (Exception $e) {
+				user_error($e->getMessage());
+				$med = NULL;
+			}
+			if($med) $media [] = $med;
 			break;
 		case "GraphSidecar":
 			$edges = $data["edge_sidecar_to_children"]["edges"];
 			foreach($edges as $edge) {
 				$node = $edge['node'];//really...
-				$media [] = [$node['display_url'], $node["video_url"]];
+				try {
+					$med = self::check_insta_media($node);
+				} catch (Exception $e) {
+					user_error($e->getMessage());
+					$med = NULL;
+				}
+				if($med) $media [] = $med;
 			}
 			break;
 		default:
 			user_error("No typename for '$url'. Format changed?");
 		}
 
-		if(! $media) {//fallback, now for real. Doesn't work for albums
+		if(! $media) {  // Doesn't work for albums
 			user_error("json scraping doesn't work for '$url'. Using Fallback.");
 			$doc = new DOMDocument();
+			if(! $html) {
+				$html = fetch_file_contents($url);
+				if(! $html) throw new Exception("'$fetch_last_error' occured for '$url'", $fetch_last_error_code);
+			}
 			@$doc->loadHTML($html);
 			#echo $doc->saveXML();
 			$xpath = new DOMXPath($doc);
@@ -372,6 +419,8 @@ class Loader{
 
 			if($poster) $media = [[$poster, $v_url]];//also works when $v_url == NULL
 		}
+
+		if(! $media) throw new Exception("No method for getting media information for '$url' worked.");
 
 		return $media;
 	}
@@ -386,7 +435,9 @@ class PostGenerator {
 		$json = $list["edge_owner_to_timeline_media"];
 		$this->posts = $json["edges"];
 		$this->info = $json["page_info"];
-		if(! $this->posts || ! $this->info) user_error("Missing something!");
+
+		if(! $this->posts) throw new MissingKeyException("edges");
+		if(! $this->info) user_error("No meta information provided.");
 	}
 
 	function __invoke() {
@@ -423,8 +474,10 @@ class UserPage {
 		$this->url = "https://instagram.com/" . $json["username"] . "/";
 		$this->id = $json['id'];
 
-		$this->gen = new PostGenerator($json);
-		#var_dump($this->gen);
+		$this->gen = new PostGenerator($json);  // can throw Exception
+		if(! isset($json["username"]) || ! $this->name) {
+			throw new MissingKeyException(".*name");
+		}
 	}
 
 	function author() {return $this->name;}
@@ -437,26 +490,39 @@ class UserPage {
 
 	static function from_html($html) {
 		$json = Loader::scrap_insta_js($html);
-		Loader::get_instance($json);
+		$meta = $json;
 		$json = $json["entry_data"]["ProfilePage"][0]["graphql"]["user"];
+		unset($meta["entry_data"]["ProfilePage"][0]["graphql"]["user"]);
+
+		if(! $json) {
+			throw new
+				MissingKeyException('["entry_data"]["ProfilePage"][0]["graphql"]["user"]');
+		}
+		Loader::get_instance($meta);
 		return new self($json);
 	}
 
 	function generate_posts($only_first=True) {
 		$gen = $this->gen;
 		foreach($gen() as $post) {  // PHP7: yield from
-			yield $post;
+			yield $post;  //if this throws an Exception, there is a serious problem.
 		}
 		if($only_first) return;
 
 		while(True) {
 			$info = $gen->get_info();
-			if(! $info["has_next_page"]) break;
-			$json = Loader::fetch_insta_user_json($this->id, $info["end_cursor"]);
-			$json = $json["data"]["user"];
-			$gen = new PostGenerator($json);
-			foreach($gen() as $post) {
-				yield $post;
+			if(! $info["has_next_page"]) break;  // TODO that could be misleading when key not there
+			try {
+				$json = Loader::fetch_insta_user_json($this->id, $info["end_cursor"]);
+				$json = $json["data"]["user"];
+				if( ! $json) throw new MissingKeyException('["data"]["user"]');
+				$gen = new PostGenerator($json);
+				foreach($gen() as $post) {
+					yield $post;
+				}
+			} catch (Exception $e) {
+				user_error("Further fetching didn't work for '" . $this->url() .  "': " . $e->getMessage());
+				break;
 			}
 		}
 	}
