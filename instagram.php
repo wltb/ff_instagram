@@ -20,6 +20,8 @@ namespace PI\Instagram;
 
 use DOMElement, DOMXPath, DOMDocument, Exception;
 
+class UserPrivateException extends Exception {}
+class NoPostsException extends Exception {}
 class MissingKeyException extends Exception{
 	function __construct($key) {
 		parent::__construct("'$key' not in JSON.");
@@ -448,8 +450,10 @@ class PostGenerator {
 		$this->posts = $json["edges"];
 		$this->info = $json["page_info"];
 
-		if(! $this->posts) throw new MissingKeyException("edges");
-		if(! $this->info) user_error("No meta information provided.");
+		if(! is_array($this->posts)) throw new MissingKeyException("edges");
+		$this->count = count($this->posts);
+
+		if(! is_array($this->info)) user_error("No meta information provided.");
 	}
 
 	function __invoke() {
@@ -460,6 +464,7 @@ class PostGenerator {
 	}
 
 	function get_info() {return $this->info;}
+	function count() {return $this->count;}
 }
 
 
@@ -472,7 +477,6 @@ class UserPage {
 	private $gen;
 
 	function __construct(array $json) {
-		#if(! is_array($json)) $json = json_decode($json, true);
 		#var_dump($json);
 
 		$name = $json["full_name"];
@@ -486,7 +490,20 @@ class UserPage {
 		$this->url = "https://instagram.com/" . $json["username"] . "/";
 		$this->id = $json['id'];
 
-		$this->gen = new PostGenerator($json);  // can throw Exception
+		$gen = new PostGenerator($json);  // can throw Exception
+
+		if(! $gen->count()) {
+			if($this->private) throw new UserPrivateException;
+			else throw new NoPostsException;
+		}
+
+		/*
+			We gather posts here because if there is a problem, the exception
+			is then thrown from here.
+			If this happens, there is a serious problem.
+		*/
+		foreach($gen() as $post) $this->posts [] = $post;
+		$this->gen = $gen;
 		if(! isset($json["username"]) || ! $this->name) {
 			throw new MissingKeyException(".*name");
 		}
@@ -514,13 +531,17 @@ class UserPage {
 		return new self($json);
 	}
 
+	/*
+		No Exception should be thrown or passthroughed from here.
+	*/
 	function generate_posts($only_first=True) {
-		$gen = $this->gen;
-		foreach($gen() as $post) {  // PHP7: yield from
-			yield $post;  //if this throws an Exception, there is a serious problem.
+		foreach($this->posts as $post) {  // PHP7: yield from
+			yield $post;
 		}
+
 		if($only_first) return;
 
+		$gen = $this->gen;
 		while(True) {
 			$info = $gen->get_info();
 			if(! $info["has_next_page"]) break;  // TODO that could be misleading when key not there
@@ -533,7 +554,8 @@ class UserPage {
 					yield $post;
 				}
 			} catch (Exception $e) {
-				user_error("Further fetching didn't work for '" . $this->url() .  "': " . $e->getMessage());
+				user_error(PI_format_exception(
+					"Further fetching didn't work for '{$this->url()}'", $e));
 				break;
 			}
 		}

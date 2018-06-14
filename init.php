@@ -3,6 +3,16 @@
 require_once __DIR__ .  '/RSSGenerator.php';
 require_once __DIR__ . "/instagram.php";
 
+//TODO make filenames in Trace relative to something?
+if(! function_exists('PI_format_exception')) {
+function PI_format_exception($msg, Exception $e, $trace=True) {
+	if(msg && is_string($msg)) $s = "${msg}: ";
+	$s .= $e->getMessage() . "\nIn: '" . $e->getFile() . "' ({$e->getLine()})";
+	if($trace) $s .= "\nTrace:\n" . $e->getTraceAsString();
+	return($s);
+}
+}
+
 class ff_Instagram extends Plugin
 {
 	function about() {
@@ -97,18 +107,13 @@ class ff_Instagram extends Plugin
 
 		$LIMIT = 5000;
 		$i = 0;
-		try {
-			foreach($user->generate_posts($timestamp > 0) as $post) {
-				#var_dump($post);
-				$item = $post->format_for_rss();
-				$item["author"] = $user->author();
-				yield $item;
-				$i++;
-				if($i > $LIMIT) break;
-			}
-		} catch (Exception $e) {//TODO
-			user_error("Error for '" . $user->url()  . "': " . $e->getMessage());
-			return;
+		foreach($user->generate_posts($timestamp > 0) as $post) {
+			#var_dump($post);
+			$item = $post->format_for_rss();
+			$item["author"] = $user->author();
+			yield $item;
+			$i++;
+			if($i > $LIMIT) break;
 		}
 	}
 
@@ -159,12 +164,15 @@ class ff_Instagram extends Plugin
 
 		try {
 			$this->user = PI\Instagram\UserPage::from_html($feed_data);
+		} catch (PI\Instagram\UserPrivateException $e) {
+			return "<error>'$url': Page is private</error>\n"; # TODO implement login
+		} catch (PI\Instagram\NoPostsException $e) {
+			user_error("'$url': No Posts.");
+			return "<error>'$url': No posts</error>\n";
 		} catch (Exception $e) {
-			user_error("Error for '$url': {$e->getMessage()}");
+			user_error(PI_format_exception("Error for '$url'", $e));
 			return "<error>'$url': {$e->getMessage()}</error>\n";
 		}
-		if($this->user->is_private()) # TODO implement login
-			return "<error>'$url': Page is private</error>\n";
 
 		# create feed
 		$feed = new RSSGenerator_Inst\Feed();
