@@ -106,13 +106,11 @@ class ff_Instagram extends Plugin
 		if($user->is_private()) return; // shouldn't happen here, but whatever
 
 		$LIMIT = 5000;
-		$i = 0;
-		foreach($user->generate_posts($timestamp > 0) as $post) {
+		foreach($user->generate_posts($timestamp > 0) as $i => $post) {
 			#var_dump($post);
 			$item = $post->format_for_rss();
 			$item["author"] = $user->author();
 			yield $item;
-			$i++;
 			if($i > $LIMIT) break;
 		}
 	}
@@ -170,7 +168,7 @@ class ff_Instagram extends Plugin
 			user_error("'$url': No Posts.");
 			return "<error>'$url': No posts</error>\n";
 		} catch (Exception $e) {
-			user_error(PI_format_exception("Error for '$url'", $e));
+			user_error(PI_format_exception("Error for '$url'", $e), E_USER_ERROR);
 			return "<error>'$url': {$e->getMessage()}</error>\n";
 		}
 

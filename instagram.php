@@ -22,6 +22,11 @@ use DOMElement, DOMXPath, DOMDocument, Exception;
 
 class UserPrivateException extends Exception {}
 class NoPostsException extends Exception {}
+class JSONDecodeException extends Exception{
+	function __construct() {
+		parent::__construct("Couldn't decode json. Possible Reason: '" . json_last_error_msg() . "'.", json_last_error());
+	}
+}
 class MissingKeyException extends Exception{
 	function __construct($key) {
 		parent::__construct("'$key' not in JSON.");
@@ -29,13 +34,27 @@ class MissingKeyException extends Exception{
 }
 
 class Post {
+	/*
+		This class tries to get meaningful information out of an array
+		that is supposed to represent an instagram post.
+		ATM, it will not use the additional information for videos or
+		multiple media even if it was present in the array.
+
+		Instead, it sets a marker in the content html if additional information
+		is supposed to be there, and the strangely named reformat_content
+		function can be called to put it there.
+
+		If essential keys are missing, the constructor will throw an Exception.
+
+		other functions handle markup of instagram captions, or markup of media.
+	*/
 	private $date, $url, $comments, $content;
 
-	function __construct($post) {
-		foreach(["taken_at_timestamp", "shortcode", "display_url"] as $s) {
+	function __construct(array $post) {
+		foreach(["taken_at_timestamp", "shortcode", "display_url", "__typename"] as $s) {
 			if(! isset($post[$s])) {
 				throw new MissingKeyException($s);
-			}//TODO catch this
+			}
 		}
 
 		$this->date = $post["taken_at_timestamp"];
@@ -201,7 +220,7 @@ class Post {
 		$fig = $doc->getElementsByTagName('figure')->item(0);
 		if( ! $fig->hasAttribute(self::marker)) return $content;
 
-		$media = Loader::scrap_Insta_media_url($url);  // could throw Exception
+		$media = Loader::scrap_insta_media($url);  // could throw Exception
 
 		if($media) {
 			$fig->removeAttribute(self::marker);
@@ -294,7 +313,7 @@ class Loader{
 		}
 
 		$result = json_decode($result, true);
-		if(! $result ) throw new Exception("Couldn't decode json. Possible Reason: '" . json_last_error_msg() . "'.");
+		if(! $result) throw new JSONDecodeException();
 
 		return $result;
 	}
@@ -321,9 +340,8 @@ class Loader{
 			$script = $script->item(0)->textContent;
 			$json = preg_replace('/^\s*window._sharedData\s*=\s*|\s*;\s*$/', '', $script);
 			$json = json_decode($json, true);
-			if(! $json) {
-				throw new Exception("Couldn't decode json. Possible Reason: '" . json_last_error_msg() . "'.");
-			}
+			if(! $json) throw new JSONDecodeException();
+
 
 			return $json;
 		} else throw new Exception("Couldn't find script.");
@@ -348,12 +366,15 @@ class Loader{
 	/*
 		$url should be a URL to an Instagram video/multi* page (/p/.+),
 		but image only should work as well.
-		This scraps only media URLs and leaves caption etc alone
+		This scraps only media URLs and leaves caption etc alone.
+		Will try very hard to get information, but will log failures if some should occur.
 
-		TODO error reporting is a bit wordy/unnecessary (404s),
+		TODO error reporting is a bit wordy/unnecessary in some cases (404s),
 		but that shouldn't matter too much because it's called only/mostly on fresh stuff.
+
+		KEEP THIS STABLE!1!
 	*/
-	static function scrap_Insta_media_url($url) {
+	static function scrap_insta_media($url) {
 		global $fetch_last_error;
 		global $fetch_last_error_code;
 
@@ -442,8 +463,8 @@ class Loader{
 
 
 class PostGenerator {
-	private $posts;
-	private $info;
+	private $posts, $info, $count;
+
 
 	function __construct($list){
 		$json = $list["edge_owner_to_timeline_media"];
@@ -476,6 +497,9 @@ class UserPage {
 	private $id;
 	private $gen;
 
+	/*
+		can, and will, throw an Exception if sufficient information is missing.
+	*/
 	function __construct(array $json) {
 		#var_dump($json);
 
@@ -498,9 +522,9 @@ class UserPage {
 		}
 
 		/*
-			We gather posts here because if there is a problem, the exception
-			is then thrown from here.
-			If this happens, there is a serious problem.
+			We gather posts here because if an Exception occurs during Post creation,
+			it is thrown from here then.
+			Should this happen, there is a serious problem.
 		*/
 		foreach($gen() as $post) $this->posts [] = $post;
 		$this->gen = $gen;
