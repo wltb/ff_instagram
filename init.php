@@ -13,6 +13,11 @@ function PI_format_exception($msg, Exception $e, $trace=True) {
 }
 }
 
+/* compatibility with older versions */
+if(! function_exists('feed_has_icon')) {
+	function feed_has_icon($arg) {return Feeds::feedHasIcon($arg);}
+}
+
 class ff_Instagram extends Plugin
 {
 	function about() {
@@ -43,22 +48,10 @@ class ff_Instagram extends Plugin
 		$this->host = $host;
 	}
 
-	//TODO unify this
 	static function check_feed_icon($icon_url, $feed_id) {
-		if ($icon_url) {
-			$icon_file = ICONS_DIR . "/$feed_id.ico";
-			if (! feed_has_icon($feed_id) ) self::save_feed_icon($icon_url, $icon_file);
-			else {
-				/*
-				$ts = filemtime($icon_file);
-				if (time() - $ts > 600000) //a week
-					self::save_feed_icon($icon_url, $icon_file);
-				*/
-			}
-		}
-	}
+		if(! $icon_url || feed_has_icon($feed_id)) return;
 
-	static function save_feed_icon($icon_url, $icon_file) {
+		$icon_file = ICONS_DIR . "/$feed_id.ico";
 		$contents = fetch_file_contents($icon_url);
 		if ($contents && mb_strlen($contents, '8bit') < 65535) {
 			$fp = @fopen($icon_file, "w");
