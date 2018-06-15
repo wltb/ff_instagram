@@ -32,6 +32,11 @@ class MissingKeyException extends Exception{
 		parent::__construct("'$key' not in JSON.");
 	}
 }
+class FetchException extends Exception{
+	function __construct($text, $code) {
+		parent::__construct($text, $code);
+	}
+}
 
 class Post {
 	/*
@@ -91,7 +96,7 @@ class Post {
 		foreach($lines as $line) {
 			# heuristic: Suppose that all @xyz strings are Instagram references
 			# and turn them into hyperlinks.
-			$line = preg_replace('/(^|\s)@(\S+)/u',
+			$line = preg_replace('/(^|\s)@([\w.]+\w)/u',
 						'$1<a href="/$2">@$2</a>', $line);
 
 			# tags
@@ -208,7 +213,7 @@ class Post {
 		}
 
 		$fig = $doc->appendChild($fig);
-		return $fig->c14n();
+		return $doc->saveHTML($fig);
 	}
 
 	/* should be used on HTML like the one created in create_figure */
@@ -239,9 +244,11 @@ class Post {
 
 
 class Loader{
+//TODO structure is messed up. better have an init function or something like that?
 	private static $instance;
 	private static $rhx_gis;
 	private function __construct($meta) {
+		#self::setup_channel();
 		self::$rhx_gis = $meta["rhx_gis"];
 		if(! self::$rhx_gis) user_error("Meta information missing.");
 	}
@@ -251,27 +258,32 @@ class Loader{
 		return self::$instance;
 	}
 
-	/*
-	here a bit of magic happens. We need to set a custom HTTP header to query
-	and use magic ids. docs:
-	https://github.com/ping/instagram_private_api
-	https://github.com/postaddictme/instagram-php-scraper
-	https://github.com/rarcega/instagram-scraper
-	https://stackoverflow.com/q/49786980
+	static function set_meta() {
+		if(self::$rhx_gis) return;
+		self::setup_channel();
 
-	TODO make graphql queries more abstract, also use the curl channel for video/album fetching
-	TODO maybe the __a=1 trick can be made to work again with another magic header
-	*/
+		curl_setopt(self::$ch, CURLOPT_HTTPHEADER, self::$curl_header_keep_alive);
+		curl_setopt(self::$ch, CURLOPT_URL, "https://instagram.com/");
+
+		for($i=0; $i < 10; $i++) {
+			@$result = curl_exec(self::$ch);
+			if (preg_match('/"rhx_gis":"([0-9a-f]+)"/x', $result, $match)) {
+				self::get_instance(["rhx_gis" => $match[1]]);
+				return;
+			}
+		}
+	}
+
+
 	static $curl_header_keep_alive = array(
 					'Connection: Keep-Alive',
 					'Keep-Alive: 300');
 
-	static function fetch_insta_user_json($user_id, $end_cursor) {
-		static $ch;
-		if(! function_exists(curl_init)) throw new Exception("curl needed");
-
-		if(!$ch) {
-			$ch = curl_init();
+	private static $ch;
+	private static function setup_channel() {
+		if(! function_exists('curl_init')) throw new Exception("curl needed");
+		if(! self::$ch) {
+			self::$ch = curl_init();
 			$opt = array(CURLOPT_RETURNTRANSFER => true,
 					CURLOPT_USERAGENT => SELF_USER_AGENT,
 					CURLOPT_FOLLOWLOCATION => true,
@@ -286,11 +298,40 @@ class Loader{
 					CURLOPT_HEADER => false,
 					CURLOPT_NOBODY => false,
 					);
-			curl_setopt_array($ch, $opt);
+			curl_setopt_array(self::$ch, $opt);
 			if (defined('_CURL_HTTP_PROXY')) {
-				curl_setopt($ch, CURLOPT_PROXY, _CURL_HTTP_PROXY);
+				curl_setopt(self::$ch, CURLOPT_PROXY, _CURL_HTTP_PROXY);
 			}
 		}
+	}
+
+	private static function download_decode($url) {
+		curl_setopt(self::$ch, CURLOPT_URL, $url);
+		@$result = curl_exec(self::$ch);
+		$http_code = curl_getinfo(self::$ch, CURLINFO_HTTP_CODE);
+		if($http_code !== 200) {
+			throw new FetchException("HTTP Error $http_code. Server response: '$result'", $http_code);
+		}
+
+		$result = json_decode($result, true);
+		if(! $result) throw new JSONDecodeException();
+
+		return $result;
+	}
+
+	/*
+	here a bit of magic happens. We need to set a custom HTTP header to query
+	and use magic ids. docs:
+	https://github.com/ping/instagram_private_api
+	https://github.com/postaddictme/instagram-php-scraper
+	https://github.com/rarcega/instagram-scraper
+	https://stackoverflow.com/q/49786980
+
+	TODO make graphql queries more abstract
+	*/
+
+	static function fetch_more_user_json($user_id, $end_cursor) {
+		self::setup_channel();
 
 		//50 is server-side limit
 		$variables = ["id" => $user_id, "first" => 50, "after" => $end_cursor];
@@ -298,24 +339,28 @@ class Loader{
 		$rhx_gis = self::$rhx_gis;
 		$hash = md5("$rhx_gis:$variables");
 
-		curl_setopt($ch, CURLOPT_HTTPHEADER, array_merge(self::$curl_header_keep_alive, ["X-Instagram-GIS: $hash"]));
+		curl_setopt(self::$ch, CURLOPT_HTTPHEADER, array_merge(self::$curl_header_keep_alive, ["X-Instagram-GIS: $hash"]));
 
 		$api_url = 'https://www.instagram.com/graphql/query/';
 
 		//magic number. May be deprecated?
 		$url = "$api_url?query_id=17880160963012870&variables=$variables";
-		curl_setopt($ch, CURLOPT_URL, $url);
 
-		@$result = curl_exec($ch);
-		$http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-		if($http_code !== 200) {
-			throw new Exception("HTTP Error $http_code. Server response: '$result'", $http_code);
+		return self::download_decode($url);
+	}
+
+	static function fetch_inital_user_json($user_url) {
+		self::setup_channel();
+		//var_dump($user_url);
+		$path = parse_url($user_url, PHP_URL_PATH);
+		if(preg_match("~^(/[^/]+/)~", $path, $match)) {
+			$rhx_gis = self::$rhx_gis;
+			//var_dump("$rhx_gis:{$match[1]}");
+			$hash = md5("$rhx_gis:{$match[1]}");
+			curl_setopt(self::$ch, CURLOPT_HTTPHEADER, array_merge(self::$curl_header_keep_alive, ["X-Instagram-GIS: $hash"]));
+
+			return self::download_decode($user_url . "?__a=1");
 		}
-
-		$result = json_decode($result, true);
-		if(! $result) throw new JSONDecodeException();
-
-		return $result;
 	}
 
 	const charset_hack = '<head>
@@ -379,9 +424,21 @@ class Loader{
 		global $fetch_last_error_code;
 
 		$url_ = "$url?__a=1";
-		$json = fetch_file_contents($url_);
-		if(! $json) user_error("'$fetch_last_error' occured for '$url_'");
-		$data = json_decode($json, true);
+		/*
+		This function worked without curl and should stay this way.
+		But for better efficiency (HTTP keep-alive)
+		we first try to use the class channel
+		and switch to the ttRSS fetch function if that fails.
+		*/
+		try {
+			self::setup_channel();
+			curl_setopt(self::$ch, CURLOPT_HTTPHEADER, self::$curl_header_keep_alive);
+			$data = self::download_decode($url_);
+		} catch (Exception $e) {
+			$json = fetch_file_contents($url_);
+			if(! $json) user_error("'$fetch_last_error' occured for '$url_'");
+			$data = json_decode($json, true);
+		}
 
 		if(!$data) {//fallback
 			user_error("Couldn't decode json for '$url_', error message '" .
@@ -389,7 +446,7 @@ class Loader{
 
 			# we fail here because the other stuff below depends on this
 			$html = fetch_file_contents($url);
-			if(! $html) throw new Exception("'$fetch_last_error' occured for '$url'", $fetch_last_error_code);
+			if(! $html) throw new FetchException("'$fetch_last_error' occured for '$url'", $fetch_last_error_code);
 
 			try {
 				$json = self::scrap_insta_js($html);
@@ -440,7 +497,7 @@ class Loader{
 			$doc = new DOMDocument();
 			if(! $html) {
 				$html = fetch_file_contents($url);
-				if(! $html) throw new Exception("'$fetch_last_error' occured for '$url'", $fetch_last_error_code);
+				if(! $html) throw new FetchException("'$fetch_last_error' occured for '$url'", $fetch_last_error_code);
 			}
 			@$doc->loadHTML($html);
 			#echo $doc->saveXML();
@@ -548,10 +605,21 @@ class UserPage {
 		unset($meta["entry_data"]["ProfilePage"][0]["graphql"]["user"]);
 
 		if(! $json) {
-			throw new
-				MissingKeyException('["entry_data"]["ProfilePage"][0]["graphql"]["user"]');
+			throw new MissingKeyException('["entry_data"]["ProfilePage"][0]["graphql"]["user"]');
 		}
 		Loader::get_instance($meta);
+		return new self($json);
+	}
+
+	/*
+		Doesn't download the $url and passes the html to from_html,
+		but tries to fetch the json directly.
+	*/
+	static function from_url($url) {
+		$json = Loader::fetch_inital_user_json($url);
+		$json = $json["graphql"]["user"];
+		if(! $json) throw new MissingKeyException('["graphql"]["user"]');
+
 		return new self($json);
 	}
 
@@ -570,7 +638,7 @@ class UserPage {
 			$info = $gen->get_info();
 			if(! $info["has_next_page"]) break;  // TODO that could be misleading when key not there
 			try {
-				$json = Loader::fetch_insta_user_json($this->id, $info["end_cursor"]);
+				$json = Loader::fetch_more_user_json($this->id, $info["end_cursor"]);
 				$json = $json["data"]["user"];
 				if( ! $json) throw new MissingKeyException('["data"]["user"]');
 				$gen = new PostGenerator($json);

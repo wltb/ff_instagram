@@ -38,7 +38,7 @@ class ff_Instagram extends Plugin
 			user_error('Hooks not registered. Needs trunk or version > 1.12', E_USER_NOTICE);
 			return;
 		}
-		//$host->add_hook($host::HOOK_FETCH_FEED, $this);
+		$host->add_hook($host::HOOK_FETCH_FEED, $this);
 		$host->add_hook($host::HOOK_FEED_FETCHED, $this);
 		$host->add_hook($host::HOOK_SUBSCRIBE_FEED, $this);
 		$host->add_hook($host::HOOK_FEED_PARSED, $this);
@@ -48,7 +48,7 @@ class ff_Instagram extends Plugin
 		$this->host = $host;
 	}
 
-	static function check_feed_icon($icon_url, $feed_id) {
+	private static function check_feed_icon($icon_url, $feed_id) {
 		if(! $icon_url || feed_has_icon($feed_id)) return;
 
 		$icon_file = ICONS_DIR . "/$feed_id.ico";
@@ -76,7 +76,7 @@ class ff_Instagram extends Plugin
 	 * some things differently (JSON names, RSS author required a lookup etc)
 	*/
 
-	static function normalize_Insta_user_url($url) {
+	private static function normalize_Insta_user_url($url) {
 		$path = parse_url($url, PHP_URL_PATH);
 		$host = parse_url($url, PHP_URL_HOST);
 
@@ -89,13 +89,13 @@ class ff_Instagram extends Plugin
 		return "https://instagram.com/$user/";
 	}
 
-	/* TODO change this
+	/*
 		* Takes an object representing a user page and an integer timestamp.
 		*
 		* yield arrays that can be inserted into RSSGenerator's Item class
 	*/
 
-	static function generate_Iposts($user, $timestamp) {
+	private static function generate_Iposts($user, $timestamp) {
 		if($user->is_private()) return; // shouldn't happen here, but whatever
 
 		$LIMIT = 5000;
@@ -112,7 +112,7 @@ class ff_Instagram extends Plugin
 			<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
 		</head>';
 
-	static function get_insta_user_metadata_html($html) {
+	private static function get_insta_user_metadata_html($html) {
 		$doc = new DOMDocument();
 		@$doc->loadHTML(self::charset_hack . $html);
 		$xpath = new DOMXPath($doc);
@@ -139,19 +139,58 @@ class ff_Instagram extends Plugin
 		return $feed->saveXML();
 	}
 
-	//is not registered and hence not used ATM
-	function hook_fetch_feed($feed_data, &$fetch_url) {
+	private static function create_xml_icon_stamp($user, $feed_id, $db) {
+		# create feed
+		$feed = new RSSGenerator_Inst\Feed();
+
+		$feed->link = $user->url();
+		$feed->title = $user->title();
+		$feed->description = $user->description();
+
+		# icon
+		self::check_feed_icon($user->icon_url(), $feed_id);
+
+		//check latest entry in DB
+		$result = $db->query("SELECT max(date_entered) AS ts FROM
+				ttrss_entries, ttrss_user_entries WHERE
+				ref_id = id AND feed_id = '$feed_id'", false);
+		$ts = $db->fetch_result($result, 0, "ts");  // NULL when no entries in DB
+
+		if($ts) $ts = @strtotime($ts);
+		else $ts = false;
+
+		return [$feed->saveXML(), $ts];
+	}
+
+	function hook_fetch_feed($feed_data, $fetch_url, $o_id, $feed_id) {
 		$url = self::normalize_Insta_user_url($fetch_url);
 
 		if(! $url || $feed_data) return $feed_data;
-		else $fetch_url = $url . '?__a=1';
+		try { PI\Instagram\Loader::set_meta();}
+		catch (Exception $e) {return '';}
 
-		return '';
+		try {
+			$this->user = PI\Instagram\UserPage::from_url($url);
+		} catch (PI\Instagram\UserPrivateException $e) {
+			return "<error>'$url': Page is private</error>\n";
+		} catch (PI\Instagram\NoPostsException $e) {
+			user_error("'$url': No Posts.");
+			return "<error>'$url': No posts</error>\n";
+		} catch (FetchException $e) {
+			#if($e->getCode() == 404)
+			return "";  // for better UI feedback
+		} catch (Exception $e) {
+			return "";
+		}
+
+		list($con, $this->ts) = self::create_xml_icon_stamp($this->user, $feed_id, $this->host->get_dbh());
+
+		return $con;
 	}
 
 	function hook_feed_fetched($feed_data, $fetch_url, $owner_uid, $feed_id) {
 		$url = self::normalize_Insta_user_url($fetch_url);
-		if(! $url) return $feed_data;
+		if(! $url || $feed_data) return $feed_data;
 
 		try {
 			$this->user = PI\Instagram\UserPage::from_html($feed_data);
@@ -165,27 +204,9 @@ class ff_Instagram extends Plugin
 			return "<error>'$url': {$e->getMessage()}</error>\n";
 		}
 
-		# create feed
-		$feed = new RSSGenerator_Inst\Feed();
+		list($con, $this->ts) = self::create_xml_icon_stamp($this->user, $feed_id, $this->host->get_dbh());
 
-		$feed->link = $url;
-		$feed->title = $this->user->title();
-		$feed->description = $this->user->description();
-
-		# icon
-		self::check_feed_icon($this->user->icon_url(), $feed_id);
-
-		//check latest entry in DB
-		$db = $this->host->get_dbh();
-		$result = $db->query("SELECT max(date_entered) AS ts FROM
-				ttrss_entries, ttrss_user_entries WHERE
-				ref_id = id AND feed_id = '$feed_id'", false);
-		$ts = $db->fetch_result($result, 0, "ts");//NULL when no entries in DB
-
-		if($ts) $this->ts = @strtotime($ts);
-		else $this->ts = false;
-
-		return $feed->saveXML();
+		return $con;
 	}
 
 	function hook_feed_parsed($rss) {
@@ -240,5 +261,3 @@ class ff_Instagram extends Plugin
 		return array($doc, $allowed_elements, $disallowed_attributes);
 	}
 }
-?>
-
