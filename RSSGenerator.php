@@ -29,8 +29,7 @@ $it->content = 'Content'; #content currently overrides description
 $f->save('php://stdout');
 */
 
-class Feed
-{
+class Feed {
 	private $feed;
 	private $channel;
 	private $stored_elems = array();
@@ -39,28 +38,23 @@ class Feed
 	static private $alias_tags = array('url' => 'link');
 
 	public function __set($name, $value) {
-		if(isset(self::$alias_tags[$name]))
-			$name = self::$alias_tags[$name];
+		if(isset(self::$alias_tags[$name])) $name = self::$alias_tags[$name];
 
 		if(in_array($name, self::$supported_tags)) {
-			$type = DOMText;
+			$type = 'DOMText';
 			$this->factory_singleton($value, $name, $type);
 		}
 	}
 
 	public function __get($name) {
-		if(isset(self::$alias_tags[$name]))
-			$name = self::$alias_tags[$name];
+		if(isset(self::$alias_tags[$name])) $name = self::$alias_tags[$name];
 
-		if(isset($this->stored_elems[$name]))
-			return $this->stored_elems[$name];
-		else
-			return NULL;
+		if(isset($this->stored_elems[$name])) return $this->stored_elems[$name];
+		else return NULL;
 	}
 
 	function __construct($ar=array(), $doc=NULL) {
-		if($doc)
-			$this->feed = $doc;
+		if($doc) $this->feed = $doc;
 		else {
 			$this->feed = new \DOMDocument('1.0', 'utf-8');
 			$this->feed->loadXML('<rss version="2.0"><channel/></rss>');
@@ -73,11 +67,9 @@ class Feed
 	}
 
 	function set_feed_elements($ar) {
-		foreach($ar as $key => $val)
-			$this->$key = $val;
+		foreach($ar as $key => $val) $this->$key = $val;
 	}
 
-	/* better remove this? */
 	function get_xpath() {
 		return new \DOMXPath($this->feed);
 	}
@@ -89,14 +81,13 @@ class Feed
 		@param string $text	   Text to be stored in the node $tag
 		@param DOMText/DOMCdataSection $type	Type of the text node that stores $text & is appended to node $tag
 	*/
-	private function factory_singleton($text, $tag, $type = DOMText) {
+	private function factory_singleton($text, $tag, $type='DOMText') {
 		$text_node = create_text_node($text, $type);
 
 		$parent = $this->channel;
 		$node = $this->stored_elems[$tag]; //caching for easier access/check
 
-		if($node)
-			$parent->removeChild($node);
+		if($node) $parent->removeChild($node);
 		$node = $parent->insertBefore(new \DOMElement($tag), $parent->firstChild);
 
 		$node->appendChild($text_node);
@@ -145,8 +136,7 @@ class FeedItem {
 	function __construct($item, $ar = array()) {
 		$this->item = $item;
 		//calls __set
-		foreach($ar as $key => $val)
-			$this->$key = $val;
+		foreach($ar as $key => $val) $this->$key = $val;
 	}
 
 	function get_item() {
@@ -154,27 +144,23 @@ class FeedItem {
 	}
 
 	//see function in Feed class
-	private function factory_singleton($text, $tag, $type = DOMText) {
+	private function factory_singleton($text, $tag, $type='DOMText') {
 		$text_node = create_text_node($text, $type);
 
 		$parent = $this->item;
 		$node = $this->stored_elems[$tag];
-		if($node)
-			$parent->removeChild($node);
+		if($node) $parent->removeChild($node);
 		$node = $parent->appendChild(new \DOMElement($tag));
 		$node->appendChild($text_node);
 		$this->stored_elems[$tag] = $node;
 	}
 
 	public function __set($name, $value) {
-		if(isset(self::$alias_tags[$name]))
-			$name = self::$alias_tags[$name];
+		if(isset(self::$alias_tags[$name])) $name = self::$alias_tags[$name];
 
 		if(in_array($name, self::$supported_tags)) {
-			if($name == 'description')
-				$type = DOMCdataSection;
-			else
-				$type = DOMText;
+			if($name == 'description') $type = 'DOMCdataSection';
+			else $type = 'DOMText';
 			$this->factory_singleton($value, $name, $type);
 		} elseif($name == 'category') {
 			$this->category($value);
@@ -184,13 +170,10 @@ class FeedItem {
 	}
 
 	public function __get($name) {
-		if(isset(self::$alias_tags[$name]))
-			$name = self::$alias_tags[$name];
+		if(isset(self::$alias_tags[$name])) $name = self::$alias_tags[$name];
 
-		if(isset($this->stored_elems[$name]))
-			return $this->stored_elems[$name]->textContent;
-		else
-			return NULL;
+		if(isset($this->stored_elems[$name])) return $this->stored_elems[$name]->textContent;
+		else return NULL;
 	}
 
 	function slash_comments($num_comments) {
@@ -215,17 +198,14 @@ class FeedItem {
 	@param string/array $arg	category names
 	*/
 	function category($arg) {
-		if(!(is_string($arg) || is_array($arg)) )
-			return; //could bark here a little
-		elseif(is_string($arg))
-			$arg = array($arg);
+		if(!(is_string($arg) || is_array($arg)) ) return; //could bark here a little
+		elseif(is_string($arg)) $arg = array($arg);
+
 		foreach($arg as $cat) {
-			$text_node = create_text_node($cat, DOMText);
+			$text_node = create_text_node($cat, 'DOMText');
 
 			$node = $this->item->appendChild(new \DOMElement('category'));
 			$node->appendChild($text_node);
 		}
 	}
 }
-
-?>
