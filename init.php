@@ -170,7 +170,7 @@ class ff_Instagram extends Plugin
 		catch (Exception $e) {return '';}
 
 		try {
-			$this->user = PI\Instagram\UserPage::from_url($url);
+			$this->user = PI\Instagram\UserPage::from_deskgram($url);
 		} catch (PI\Instagram\UserPrivateException $e) {
 			return "<error>'$url': Page is private</error>\n";
 		} catch (PI\Instagram\NoPostsException $e) {

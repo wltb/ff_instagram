@@ -305,7 +305,7 @@ class Loader{
 		}
 	}
 
-	private static function download_decode($url) {
+	static function download($url) {
 		curl_setopt(self::$ch, CURLOPT_URL, $url);
 		@$result = curl_exec(self::$ch);
 		$http_code = curl_getinfo(self::$ch, CURLINFO_HTTP_CODE);
@@ -313,6 +313,11 @@ class Loader{
 			throw new FetchException("HTTP Error $http_code. Server response: '$result'", $http_code);
 		}
 
+		return $result;
+	}
+
+	private static function download_decode($url) {
+		$result = self::download($url);
 		$result = json_decode($result, true);
 		if(! $result) throw new JSONDecodeException();
 
@@ -621,6 +626,77 @@ class UserPage {
 		if(! $json) throw new MissingKeyException('["graphql"]["user"]');
 
 		return new self($json);
+	}
+
+	static function from_deskgram($url) {
+		$url = str_ireplace('://instagram.com/', '://deskgram.net/', $url);
+		$html = Loader::download($url);
+		$doc = new DOMDocument();
+		@$doc->loadHTML($html);
+		$xpath = new DOMXPath($doc);
+
+		if($xpath->query("//div[@class='nothing-found']")->item(0)) throw new UserPrivateException();
+
+		$profile = $xpath->query("//div[@id='profile-header']")->item(0);
+		$ar = [];
+		if($profile) {
+			$ar["full_name"] = $xpath->evaluate("string(.//div[@class='profile-bio']/h2/text())", $profile);
+			$ar["username"] = $xpath->evaluate("string(.//div[@class='profile-bio']/h1/text())", $profile);
+			$ar["profile_pic_url"] = $xpath->evaluate("string(.//div[@class='profile-pic']//img[@src]/@src)", $profile);
+			//id is set in the post section
+		}
+		$ar["is_private"] = false;
+
+		$posts = $xpath->query("//div[@class='post-box' and @data-id]");
+		$media = [];
+		foreach($posts as $post) {
+			$ig_post = [];
+			$ig_post["id"] = $xpath->evaluate("string(./@data-id)", $post);
+			$id = explode('_', $ig_post["id"], 2)[1];
+			if(is_int($id)) $ar['id'] = $id;
+
+			$ig_post["shortcode"] = self::mediaid_to_shortcode($ig_post["id"]);
+			$ig_post["__typename"] = $xpath->evaluate("string(.//div[@class='post-img']/a[@class]/@class)", $post);
+			$ig_post["is_video"] = $ig_post["__typename"] === "GraphVideo";
+			$ig_post["display_url"] = $xpath->evaluate("string(.//div[@class='post-img']/a[@class]/img[@src]/@src)", $post);
+
+			$con_node = $xpath->evaluate(".//div[@class='post-caption']/p", $post)->item(0);
+			$time_node = $xpath->evaluate(".//span[@class='time']", $con_node)->item(0);
+			if($time_node) {
+				$ig_post["taken_at_timestamp"] = strtotime($time_node->textContent);
+				$time_node->parentNode->removeChild($time_node);
+			}
+			$con = $con_node->textContent;
+			$con = preg_replace("/\s*-\s*$/", '', $con);
+
+			$ig_post["edge_media_to_caption"]['edges'][0]['node']['text'] = $con;
+
+			$media [] = ["node" => $ig_post];
+		}
+		$ar["edge_owner_to_timeline_media"] = ["edges" => $media, "page_info" => ["has_next_page" => false]];
+
+		return new self($ar);
+	}
+
+	private static function mediaid_to_shortcode($id){
+		/* taken from https://stackoverflow.com/a/37246231
+		*/
+		if(strpos($id, '_') !== false){
+			$pieces = explode('_', $id);
+			$mediaid = $pieces[0];
+			$userid = $pieces[1];
+		}
+
+		$alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+		$shortcode = '';
+		while($mediaid > 0){
+			$remainder = $mediaid % 64;
+			$mediaid = ($mediaid-$remainder) / 64;
+			$shortcode = $alphabet{$remainder} . $shortcode;
+		};
+
+		return $shortcode;
+
 	}
 
 	/*
