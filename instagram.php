@@ -657,13 +657,15 @@ class UserPage {
 
 			$ig_post["shortcode"] = self::mediaid_to_shortcode($ig_post["id"]);
 			$ig_post["__typename"] = $xpath->evaluate("string(.//div[@class='post-img']/a[@class]/@class)", $post);
+			$ig_post["taken_at_timestamp"] = 0;  // set below
 			$ig_post["is_video"] = $ig_post["__typename"] === "GraphVideo";
 			$ig_post["display_url"] = $xpath->evaluate("string(.//div[@class='post-img']/a[@class]/img[@src]/@src)", $post);
 
 			$con_node = $xpath->evaluate(".//div[@class='post-caption']/p", $post)->item(0);
 			$time_node = $xpath->evaluate(".//span[@class='time']", $con_node)->item(0);
 			if($time_node) {
-				$ig_post["taken_at_timestamp"] = strtotime($time_node->textContent);
+				$ts = strtotime($time_node->textContent);
+				if($ts) $ig_post["taken_at_timestamp"] = $ts;
 				$time_node->parentNode->removeChild($time_node);
 			}
 			$con = $con_node->textContent;
