@@ -17,6 +17,9 @@ function PI_format_exception($msg, Exception $e, $trace=True) {
 if(! function_exists('feed_has_icon')) {
 	function feed_has_icon($arg) {return Feeds::feedHasIcon($arg);}
 }
+if(! function_exists('is_html')) {
+	function is_html($arg) {return Feeds::is_html($arg);}
+}
 
 class ff_Instagram extends Plugin
 {
@@ -170,7 +173,25 @@ class ff_Instagram extends Plugin
 		catch (Exception $e) {return '';}
 
 		try {
-			$this->user = PI\Instagram\UserPage::from_deskgram($url);
+			$user = NULL;
+			$funcs = ['from_url', 'from_deskgram'];
+
+			foreach($funcs as $func) {
+				try {
+					$user = call_user_func(['PI\Instagram\UserPage', $func], $url);
+					if($user) break;
+				} catch(Exception $e) {
+					continue;
+				}
+			}
+			if($user) $this->user = $user;
+			else {
+				if($e) throw $e;
+				else {
+					user_error("Something strange happened for '$fetch_url'", E_USER_ERROR);
+					return "";
+				}
+			}
 		} catch (PI\Instagram\UserPrivateException $e) {
 			return "<error>'$url': Page is private</error>\n";
 		} catch (PI\Instagram\NoPostsException $e) {
@@ -179,6 +200,8 @@ class ff_Instagram extends Plugin
 		} catch (FetchException $e) {
 			#if($e->getCode() == 404)
 			return "";  // for better UI feedback
+		} catch (PI\Instagram\CantTellException $e) {
+			return "";  # TODO
 		} catch (Exception $e) {
 			return "";
 		}
@@ -190,7 +213,7 @@ class ff_Instagram extends Plugin
 
 	function hook_feed_fetched($feed_data, $fetch_url, $owner_uid, $feed_id) {
 		$url = self::normalize_Insta_user_url($fetch_url);
-		if(! $url || $feed_data) return $feed_data;
+		if(! $url || ! is_html($feed_data)) return $feed_data;
 
 		try {
 			$this->user = PI\Instagram\UserPage::from_html($feed_data);
@@ -199,6 +222,8 @@ class ff_Instagram extends Plugin
 		} catch (PI\Instagram\NoPostsException $e) {
 			user_error("'$url': No Posts.");
 			return "<error>'$url': No posts</error>\n";
+		} catch(PI\Instagram\CantTellException $e) {
+			return $feed_data;
 		} catch (Exception $e) {
 			user_error(PI_format_exception("Error for '$url'", $e), E_USER_ERROR);
 			return "<error>'$url': {$e->getMessage()}</error>\n";

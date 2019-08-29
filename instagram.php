@@ -20,6 +20,7 @@ namespace PI\Instagram;
 
 use DOMElement, DOMXPath, DOMDocument, Exception;
 
+class CantTellException extends Exception {}
 class UserPrivateException extends Exception {}
 class NoPostsException extends Exception {}
 class JSONDecodeException extends Exception{
@@ -94,9 +95,9 @@ class Post {
 		//var_dump($caption, $lines);
 		$s = "";
 		foreach($lines as $line) {
-			# heuristic: Suppose that all @xyz strings are Instagram references
+			# heuristic: Suppose that most @xyz strings are Instagram references
 			# and turn them into hyperlinks.
-			$line = preg_replace('/(^|\s)@([\w.]+\w)/u',
+			$line = preg_replace('/(^|[^\w])@([\w.]+\w)/u',
 						'$1<a href="/$2">@$2</a>', $line);
 
 			# tags
@@ -610,6 +611,11 @@ class UserPage {
 		unset($meta["entry_data"]["ProfilePage"][0]["graphql"]["user"]);
 
 		if(! $json) {
+			$doc = new DOMDocument();
+			@$doc->loadHTML($html);
+			$xpath = new DOMXPath($doc);
+			$s = $xpath->evaluate("string(//link[@rel='canonical' and @href]/@href)");
+			if($s === 'https://www.instagram.com/accounts/login/') throw new CantTellException();
 			throw new MissingKeyException('["entry_data"]["ProfilePage"][0]["graphql"]["user"]');
 		}
 		Loader::get_instance($meta);
@@ -635,7 +641,7 @@ class UserPage {
 		@$doc->loadHTML($html);
 		$xpath = new DOMXPath($doc);
 
-		if($xpath->query("//div[@class='nothing-found']")->item(0)) throw new UserPrivateException();
+		if($xpath->query("//div[@class='nothing-found']")->item(0)) throw new CantTellException();
 
 		$profile = $xpath->query("//div[@id='profile-header']")->item(0);
 		$ar = [];
