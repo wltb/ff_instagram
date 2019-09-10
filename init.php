@@ -3,15 +3,7 @@
 require_once __DIR__ .  '/RSSGenerator.php';
 require_once __DIR__ . "/instagram.php";
 
-//TODO make filenames in Trace relative to something?
-if(! function_exists('PI_format_exception')) {
-function PI_format_exception($msg, Exception $e, $trace=True) {
-	if(msg && is_string($msg)) $s = "${msg}: ";
-	$s .= $e->getMessage() . "\nIn: '" . $e->getFile() . "' ({$e->getLine()})";
-	if($trace) $s .= "\nTrace:\n" . $e->getTraceAsString();
-	return($s);
-}
-}
+use PI\Instagram\Logging;
 
 /* compatibility with older versions */
 if(! function_exists('feed_has_icon')) {
@@ -167,6 +159,7 @@ class ff_Instagram extends Plugin
 
 	private function set_id($id, $url, $ids) {
 		if($id && ! isset($ids[$url])) {
+			Logging::debug("Setting id '$id' for '$url'");
 			$ids[$url] = $id;
 			$this->host->set($this, 'ids', json_encode($ids));
 		}
@@ -192,6 +185,7 @@ class ff_Instagram extends Plugin
 
 			foreach($calls as $func => $arg) {
 				try {
+					Logging::debug("Calling '$func'");
 					$user = call_user_func_array(['PI\Instagram\UserPage', $func], $arg);
 					if($user) break;
 				} catch(PI\Instagram\UserPrivateException $e) { # TODO | these
@@ -199,6 +193,7 @@ class ff_Instagram extends Plugin
 				} catch(PI\Instagram\NoPostsException $e) {
 					throw $e;
 				} catch(Exception $e) {
+					Logging::exception_debug($e, "Got Exception");
 					continue;
 				}
 			}
@@ -209,17 +204,20 @@ class ff_Instagram extends Plugin
 			else {
 				if($e) throw $e;
 				else {
-					user_error("Something strange happened for '$fetch_url'", E_USER_ERROR);
+					Logging::error("Something strange happened for '$fetch_url'");
 					return "";
 				}
 			}
 		} catch (PI\Instagram\UserPrivateException $e) {
 			self::set_id($e->id(), $url, $ids);
-			return "<error>'$url': Page is private</error>\n";
+			$s = "'$url': Set to private";
+			Logging::debug($s);
+			return "<error>$s</error>\n";
 		} catch (PI\Instagram\NoPostsException $e) {
 			self::set_id($e->id(), $url, $ids);
-			user_error("'$url': No Posts.");
-			return "<error>'$url': No posts</error>\n";
+			$s = "'$url': No Posts.";
+			Logging::error($s);
+			return "<error>$s</error>\n";
 		} catch (PI\Instagram\FetchException $e) {
 			#if($e->getCode() == 404)
 			return "";  // for better UI feedback
@@ -241,14 +239,17 @@ class ff_Instagram extends Plugin
 		try {
 			$this->user = PI\Instagram\UserPage::from_html($feed_data);
 		} catch (PI\Instagram\UserPrivateException $e) {
-			return "<error>'$url': Page is private</error>\n"; # TODO implement login
+			$s = "'$url': Set to private";
+			Logging::debug($s);
+			return "<error>$s</error>\n";
 		} catch (PI\Instagram\NoPostsException $e) {
-			user_error("'$url': No Posts.");
-			return "<error>'$url': No posts</error>\n";
+			$s = "'$url': No Posts.";
+			Logging::error($s);
+			return "<error>$s</error>\n";
 		} catch(PI\Instagram\CantTellException $e) {
 			return $feed_data;
 		} catch (Exception $e) {
-			user_error(PI_format_exception("Error for '$url'", $e), E_USER_ERROR);
+			Logging::exception_error($e, "Error for '$url'");
 			return "<error>'$url': {$e->getMessage()}</error>\n";
 		}
 
@@ -294,7 +295,7 @@ class ff_Instagram extends Plugin
 		try {
 			$article['content'] = PI\Instagram\Post::reformat_content($article['content'], $link);
 		} catch (Exception $e) {
-			user_error("Error for '$link': {$e->getMessage()}");
+			Logger::exception_error($e, "Error for '$link'");
 		}
 
 		return $article;

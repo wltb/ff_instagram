@@ -55,6 +55,35 @@ class FetchException extends Exception{
 	}
 }
 
+class Logging {
+	static function debug($msg) {
+	}
+
+	static function error($msg) {
+		user_error($msg, E_USER_ERROR);
+		self::debug($msg);
+	}
+
+	//TODO make filenames in Trace relative to something?
+	private static function format_exc($e, string $msg=NULL, $trace=true) {
+		if($msg) $s = "${msg}: ";
+		$s .= $e->getMessage() . "\nIn: '" . $e->getFile() . "' ({$e->getLine()})";
+		if($trace) $s .= "\nTrace:\n" . $e->getTraceAsString();
+
+		return $s;
+	}
+
+	static function exception_error(\Exception $e, string $msg=NULL, $trace=True) {
+		$s = self::format_exc($e, $msg, $trace);
+		user_error($s, E_USER_ERROR);
+		self::debug($s);
+	}
+
+	static function exception_debug(\Exception $e, string $msg=NULL, $trace=False) {
+		self::debug(self::format_exc($e, $msg, $trace));
+	}
+}
+
 class Post {
 	/*
 		This class tries to get meaningful information out of an array
@@ -98,6 +127,14 @@ class Post {
 		$item["content"] = $this->content;
 
 		return $item;
+	}
+
+	function url() {
+		return $this->url;
+	}
+
+	function load_owner_info() {
+		return Loader::get_user_info($this->url);
 	}
 
 	private static function markup_caption($caption) {
@@ -242,6 +279,8 @@ class Post {
 		$fig = $doc->getElementsByTagName('figure')->item(0);
 		if( ! $fig->hasAttribute(self::marker)) return $content;
 
+		Logging::debug("Trying to scrap content for '$url'");
+
 		$media = Loader::scrap_insta_media($url);  // could throw Exception
 
 		if($media) {
@@ -327,7 +366,7 @@ class Loader{
 		@$result = curl_exec(self::$ch);
 		$http_code = curl_getinfo(self::$ch, CURLINFO_HTTP_CODE);
 		if($http_code !== 200) {
-			throw new FetchException("HTTP Error $http_code. Server response: '$result'", $http_code);
+			throw new FetchException("HTTP Error $http_code for '$url'", $http_code);
 		}
 
 		return $result;
@@ -348,6 +387,8 @@ class Loader{
 	https://github.com/postaddictme/instagram-php-scraper
 	https://github.com/rarcega/instagram-scraper
 	https://stackoverflow.com/q/49786980
+
+	https://github.com/Snbig/InstaTrack how to get magic ids/hashes
 
 	TODO make graphql queries more abstract
 	*/
@@ -434,15 +475,13 @@ class Loader{
 	/*
 		$url should be a URL to an Instagram video/multi* page (/p/.+),
 		but image only should work as well.
-		This scraps only media URLs and leaves caption etc alone.
 		Will try very hard to get information, but will log failures if some should occur.
 
 		TODO error reporting is a bit wordy/unnecessary in some cases (404s),
 		but that shouldn't matter too much because it's called only/mostly on fresh stuff.
-
-		KEEP THIS STABLE!1!
 	*/
-	static function scrap_insta_media($url) {
+
+	private static function get_post_data($url) {
 		global $fetch_last_error;
 		global $fetch_last_error_code;
 
@@ -480,13 +519,33 @@ class Loader{
 				$data = [];
 			}
 		}
+		//TODO should this continue to fail silently?
+
+		if($data) $data = $data["graphql"]["shortcode_media"];
+
+		return $data;
+	}
+
+	static function get_user_info($url) {
+		$data = self::get_post_data($url);
+
+		return $data["owner"];
+	}
+
+	/*
+		$url should be a URL to an Instagram video/multi* page (/p/.+),
+		but image only should work as well.
+		This scraps only media URLs and leaves caption etc alone.
+
+		KEEP THIS STABLE!1!
+	*/
+	static function scrap_insta_media($url) {
+
 
 		$media = [];
 
+		$data = self::get_post_data($url);
 		//missing keys will show up in the switch default eventually
-		$data = $data["graphql"]["shortcode_media"];
-		#unset($data["edge_media_to_comment"]); unset($data["edge_media_preview_like"]);
-		#var_dump($data);
 
 		switch($data['__typename']) {
 		case "GraphImage": case "GraphVideo":
@@ -576,6 +635,7 @@ class UserPage {
 	private $icon_url;
 	private $id;
 	private $gen;
+	private $have_full;
 
 	/*
 		can, and will, throw an Exception if sufficient information is missing.
@@ -583,19 +643,11 @@ class UserPage {
 	function __construct(array $json) {
 		#var_dump($json);
 
-		$name = $json["full_name"];
-		if(!$name) $name = $json["username"];
-		$this->name = trim($name);
-
-		$this->private = $json["is_private"];
-
-		$this->bio = $json["biography"];
-		$this->icon_url = $json["profile_pic_url"];
-		$this->url = "https://instagram.com/" . $json["username"] . "/";
-		$this->id = $json['id'];
+		if(isset($json["is_private"])) $this->private = $json["is_private"];
 
 		$gen = new PostGenerator($json);  // can throw Exception
 		if(! $gen->count()) {
+			if($json["edge_owner_to_timeline_media"]["count"] > 0) $this->private = true;
 			if($this->private) throw new UserPrivateException($this->id);
 			else throw new NoPostsException($this->id);
 		}
@@ -607,9 +659,48 @@ class UserPage {
 		*/
 		foreach($gen() as $post) $this->posts [] = $post;
 		$this->gen = $gen;
+
+		/*
+			If data is missing, we try to fetch it from post data (one lookup)
+			TODO move this to factory function(s)
+		*/
+		if(! isset($json["full_name"])) {
+			$post = $this->posts[0];
+			try {
+				$info = $post->load_owner_info();
+			} catch (\Exception $e) {
+				Logging::exception_error($e, "Error trying to load " .  $post->url());
+				$info = [];
+			}
+
+			foreach(["id", "profile_pic_url", "username", "full_name", "is_private", "biography"] as $key) {
+				if(isset($info[$key])) {
+					$json[$key] = $info[$key];
+					Logging::debug("Providing '$key' from post.");
+				}
+			}
+		}
+
+		$name = $json["full_name"];
+		if($name) $this->have_full = True;
+		else {
+			$this->have_full = False;
+			$name = $json["username"];
+		}
+		$this->name = trim($name);
+
+		$this->private = $json["is_private"];
+
+		$this->bio = $json["biography"];
+		$this->icon_url = $json["profile_pic_url"];
+		$this->url = "https://instagram.com/" . $json["username"] . "/";
+		$this->id = $json['id'];
+
 		if(! isset($json["username"]) || ! $this->name) {
 			throw new MissingKeyException(".*name");
 		}
+
+		Logging::debug("Created ". get_class() . " for user '{$this->name}' with # of posts: '{$gen->count()}'");
 	}
 
 	function author() {return $this->name;}
@@ -619,8 +710,10 @@ class UserPage {
 	function icon_url() {return $this->icon_url;}
 	function is_private() {return $this->private;}
 	function id() {return $this->id;}
+	function got_fullname() {return $this->have_full;}
 
 	static function from_html($html) {
+		Logging::debug("Trying to create " . get_class() . " from HTML page");
 		$json = Loader::scrap_insta_js($html);
 		$meta = $json;
 		$json = $json["entry_data"]["ProfilePage"][0]["graphql"]["user"];
@@ -639,6 +732,7 @@ class UserPage {
 	}
 
 	static function from_id($id, $url) {
+		Logging::debug("Trying to create " . get_class() . " from id '$id' (URL '$url')");
 		$json = Loader::fetch_more_user_json($id, NULL, 12);
 
 		$json = $json["data"]["user"];
@@ -656,6 +750,7 @@ class UserPage {
 		but tries to fetch the json directly.
 	*/
 	static function from_url($url) {
+		Logging::debug("Trying to create " . get_class() . " from URL '$url'");
 		$json = Loader::fetch_inital_user_json($url);
 		$json = $json["graphql"]["user"];
 		if(! $json) throw new MissingKeyException('["graphql"]["user"]');
@@ -665,6 +760,7 @@ class UserPage {
 
 	static function from_deskgram($url) {
 		$url = str_ireplace('://instagram.com/', '://deskgram.net/', $url);
+		Logging::debug("Trying to create " . get_class() . " from URL '$url'");
 		$html = Loader::download($url);
 		$doc = new DOMDocument();
 		@$doc->loadHTML($html);
