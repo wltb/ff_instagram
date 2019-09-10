@@ -21,8 +21,24 @@ namespace PI\Instagram;
 use DOMElement, DOMXPath, DOMDocument, Exception;
 
 class CantTellException extends Exception {}
-class UserPrivateException extends Exception {}
-class NoPostsException extends Exception {}
+class UserPrivateException extends Exception {
+	private $id;
+	function __construct($id) {
+		$this->id = $id;
+		parent::__construct();
+	}
+
+	function id() {return $this->id;}
+}
+class NoPostsException extends Exception {
+	private $id;
+	function __construct($id) {
+		$this->id = $id;
+		parent::__construct();
+	}
+
+	function id() {return $this->id;}
+}
 class JSONDecodeException extends Exception{
 	function __construct() {
 		parent::__construct("Couldn't decode json. Possible Reason: '" . json_last_error_msg() . "'.", json_last_error());
@@ -336,11 +352,12 @@ class Loader{
 	TODO make graphql queries more abstract
 	*/
 
-	static function fetch_more_user_json($user_id, $end_cursor) {
+	//50 is server-side limit
+	static function fetch_more_user_json($user_id, $end_cursor=NULL, $num=50) {
 		self::setup_channel();
 
-		//50 is server-side limit
-		$variables = ["id" => $user_id, "first" => 50, "after" => $end_cursor];
+		$variables = ["id" => $user_id, "first" => $num];
+		if($end_cursor) $variables["after"] = $end_cursor;
 		$variables = json_encode($variables);
 		$rhx_gis = self::$rhx_gis;
 		$hash = md5("$rhx_gis:$variables");
@@ -578,10 +595,9 @@ class UserPage {
 		$this->id = $json['id'];
 
 		$gen = new PostGenerator($json);  // can throw Exception
-
 		if(! $gen->count()) {
-			if($this->private) throw new UserPrivateException;
-			else throw new NoPostsException;
+			if($this->private) throw new UserPrivateException($this->id);
+			else throw new NoPostsException($this->id);
 		}
 
 		/*
@@ -602,7 +618,7 @@ class UserPage {
 	function url() {return $this->url;}
 	function icon_url() {return $this->icon_url;}
 	function is_private() {return $this->private;}
-	//function id() {return $this->id;}
+	function id() {return $this->id;}
 
 	static function from_html($html) {
 		$json = Loader::scrap_insta_js($html);
@@ -619,6 +635,19 @@ class UserPage {
 			throw new MissingKeyException('["entry_data"]["ProfilePage"][0]["graphql"]["user"]');
 		}
 		Loader::get_instance($meta);
+		return new self($json);
+	}
+
+	static function from_id($id, $url) {
+		$json = Loader::fetch_more_user_json($id, NULL, 12);
+
+		$json = $json["data"]["user"];
+		if(! $json) throw new MissingKeyException('["data"]["user"]');
+
+		$user = trim(parse_url($url, PHP_URL_PATH), "/");
+		$json["username"] = $user;
+		$json['id'] = $id;
+
 		return new self($json);
 	}
 
@@ -659,7 +688,7 @@ class UserPage {
 			$ig_post = [];
 			$ig_post["id"] = $xpath->evaluate("string(./@data-id)", $post);
 			$id = explode('_', $ig_post["id"], 2)[1];
-			if(is_int($id)) $ar['id'] = $id;
+			if(is_numeric($id)) $ar['id'] = intval($id);
 
 			$ig_post["shortcode"] = self::mediaid_to_shortcode($ig_post["id"]);
 			$ig_post["__typename"] = $xpath->evaluate("string(.//div[@class='post-img']/a[@class]/@class)", $post);

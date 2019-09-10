@@ -165,6 +165,13 @@ class ff_Instagram extends Plugin
 		return [$feed->saveXML(), $ts];
 	}
 
+	private function set_id($id, $url, $ids) {
+		if($id && ! isset($ids[$url])) {
+			$ids[$url] = $id;
+			$this->host->set($this, 'ids', json_encode($ids));
+		}
+	}
+
 	function hook_fetch_feed($feed_data, $fetch_url, $o_id, $feed_id) {
 		$url = self::normalize_Insta_user_url($fetch_url);
 
@@ -172,19 +179,33 @@ class ff_Instagram extends Plugin
 		try { PI\Instagram\Loader::set_meta();}
 		catch (Exception $e) {return '';}
 
+		$ids = $this->host->get($this, 'ids');
+		@$ids = json_decode($ids, true);
+		if($ids) $id = $ids[$url];
+		else $ids = [];
+
+		$calls = ['from_url' => [$url], 'from_deskgram' => [$url]];
+		if($id) $calls = array_merge(['from_id' => [$id, $url]], $calls);
+
 		try {
 			$user = NULL;
-			$funcs = ['from_url', 'from_deskgram'];
 
-			foreach($funcs as $func) {
+			foreach($calls as $func => $arg) {
 				try {
-					$user = call_user_func(['PI\Instagram\UserPage', $func], $url);
+					$user = call_user_func_array(['PI\Instagram\UserPage', $func], $arg);
 					if($user) break;
+				} catch(PI\Instagram\UserPrivateException $e) { # TODO | these
+					throw $e;
+				} catch(PI\Instagram\NoPostsException $e) {
+					throw $e;
 				} catch(Exception $e) {
 					continue;
 				}
 			}
-			if($user) $this->user = $user;
+			if($user) {
+				$this->user = $user;
+				self::set_id($user->id(), $url, $ids);
+			}
 			else {
 				if($e) throw $e;
 				else {
@@ -193,11 +214,13 @@ class ff_Instagram extends Plugin
 				}
 			}
 		} catch (PI\Instagram\UserPrivateException $e) {
+			self::set_id($e->id(), $url, $ids);
 			return "<error>'$url': Page is private</error>\n";
 		} catch (PI\Instagram\NoPostsException $e) {
+			self::set_id($e->id(), $url, $ids);
 			user_error("'$url': No Posts.");
 			return "<error>'$url': No posts</error>\n";
-		} catch (FetchException $e) {
+		} catch (PI\Instagram\FetchException $e) {
 			#if($e->getCode() == 404)
 			return "";  // for better UI feedback
 		} catch (PI\Instagram\CantTellException $e) {
