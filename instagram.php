@@ -825,7 +825,7 @@ class UserPage {
 		while($mediaid > 0){
 			$remainder = $mediaid % 64;
 			$mediaid = ($mediaid-$remainder) / 64;
-			$shortcode = $alphabet{$remainder} . $shortcode;
+			$shortcode = $alphabet[$remainder] . $shortcode;
 		};
 
 		return $shortcode;
