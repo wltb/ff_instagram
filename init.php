@@ -29,10 +29,6 @@ class ff_Instagram extends Plugin
 	}
 
 	function init($host) {
-		if (version_compare(VERSION_STATIC, '1.12', '<=') && VERSION_STATIC === VERSION){
-			user_error('Hooks not registered. Needs trunk or version > 1.12', E_USER_NOTICE);
-			return;
-		}
 		$host->add_hook($host::HOOK_FETCH_FEED, $this);
 		$host->add_hook($host::HOOK_FEED_FETCHED, $this);
 		$host->add_hook($host::HOOK_SUBSCRIBE_FEED, $this);
