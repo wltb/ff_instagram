@@ -291,7 +291,7 @@ class ff_Instagram extends Plugin
 		try {
 			$article['content'] = PI\Instagram\Post::reformat_content($article['content'], $link);
 		} catch (Exception $e) {
-			Logger::exception_error($e, "Error for '$link'");
+			Logging::exception_error($e, "Error for '$link'");
 		}
 
 		return $article;
