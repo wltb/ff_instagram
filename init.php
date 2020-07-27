@@ -5,16 +5,7 @@ require_once __DIR__ . "/instagram.php";
 
 use PI\Instagram\Logging;
 
-/* compatibility with older versions */
-if(! function_exists('feed_has_icon')) {
-	function feed_has_icon($arg) {return Feeds::feedHasIcon($arg);}
-}
-if(! function_exists('is_html')) {
-	function is_html($arg) {return Feeds::is_html($arg);}
-}
-
-class ff_Instagram extends Plugin
-{
+class ff_Instagram extends Plugin {
 	function about() {
 		return array(
 			1.0, // version
@@ -32,6 +23,7 @@ class ff_Instagram extends Plugin
 		$host->add_hook($host::HOOK_FETCH_FEED, $this);
 		$host->add_hook($host::HOOK_FEED_FETCHED, $this);
 		$host->add_hook($host::HOOK_SUBSCRIBE_FEED, $this);
+		$host->add_hook($host::HOOK_FEED_BASIC_INFO, $this);
 		$host->add_hook($host::HOOK_FEED_PARSED, $this);
 		$host->add_hook($host::HOOK_ARTICLE_FILTER, $this);
 		$host->add_hook($host::HOOK_SANITIZE, $this);
@@ -39,10 +31,39 @@ class ff_Instagram extends Plugin
 		$this->host = $host;
 	}
 
-	private static function check_feed_icon($icon_url, $feed_id) {
-		if(! $icon_url || feed_has_icon($feed_id)) return;
+	private $ids;  # do not use this directly, use the getter/setter functions
 
-		$icon_file = ICONS_DIR . "/$feed_id.ico";
+	private function init_ids() {  # TODO does not work in init?
+		if(! $this->ids) {
+			$ids = $this->host->get($this, 'ids');
+			@$ids = json_decode($ids, true);
+			if(! $ids) $ids = [];
+			$this->ids = $ids;
+		}
+	}
+
+	private function get_id($url) {
+		$this->init_ids();
+		return $this->ids[$url];
+	}
+
+	private function set_id($url, $id) {
+		$this->init_ids();
+		if($id && is_numeric($id)) {
+			$passthru = false;
+			if(! isset($this->ids[$url]) || $this->ids[$url] != $id) $passthru = true;
+			$this->ids[$url] = $id;
+			if($passthru) {
+				Logging::debug("Setting id '$id' for '$url'");
+				$this->host->set($this, 'ids', json_encode($this->ids));
+			}
+		}
+	}
+
+	private static function check_feed_icon($icon_url, $feed_id) {
+		if(! $icon_url || Feeds::feedHasIcon($feed_id)) return;
+
+		$icon_file = Feeds::getIconFile($feed_id);
 		$contents = fetch_file_contents($icon_url);
 		if ($contents && mb_strlen($contents, '8bit') < 65535) {
 			$fp = @fopen($icon_file, "w");
@@ -51,6 +72,7 @@ class ff_Instagram extends Plugin
 				fwrite($fp, $contents);
 				fclose($fp);
 				chmod($icon_file, 0644);
+				Logging::debug("Saving feed icon: '$icon_file' <-- '$icon_url'");
 			}
 		}
 	}
@@ -104,6 +126,9 @@ class ff_Instagram extends Plugin
 		</head>';
 
 	private static function get_insta_user_metadata_html($html) {
+	/* This will not be called if everything goes alright, but is kept as fallback
+	since it should be more robust than haggling with json
+	*/
 		$doc = new DOMDocument();
 		@$doc->loadHTML(self::charset_hack . $html);
 		$xpath = new DOMXPath($doc);
@@ -117,100 +142,117 @@ class ff_Instagram extends Plugin
 
 
 	function hook_subscribe_feed($contents, &$url) {
-		//TODO find the right ttrss hook for site url and feed title
 		$n_url = self::normalize_Insta_user_url($url);
 		if(! $n_url) return $contents;
 
 		$url = $n_url;
 
+		try {
+			if($contents) $this->user = PI\Instagram\UserPage::from_html($contents);
+			else $this->user = $this->create_ig_user($url);
+		} catch (Exception $e) {
+			user_error("Error while trying to get Instagram data for '$url'");
+		}
+
+		if(! $this->user) {
+			list($this->title, $this->icon_url,) = self::get_insta_user_metadata_html($contents);
+		}
+
 		$feed = new RSSGenerator_Inst\Feed();
+		# Setting these has no purpose ATM
 		$feed->link = $url;
-		list($feed->title,,) = self::get_insta_user_metadata_html($contents);
+		$feed->title = $this->user? $this->user->title() : $this->title;
 
 		return $feed->saveXML();
 	}
 
-	private static function create_xml_icon_stamp($user, $feed_id, $db) {
-		# create feed
-		$feed = new RSSGenerator_Inst\Feed();
 
-		$feed->link = $user->url();
-		$feed->title = $user->title();
-		$feed->description = $user->description();
-
-		# icon
-		self::check_feed_icon($user->icon_url(), $feed_id);
-
-		//check latest entry in DB
-		$result = $db->query("SELECT max(date_entered) AS ts FROM
-				ttrss_entries, ttrss_user_entries WHERE
-				ref_id = id AND feed_id = '$feed_id'", false);
-		$ts = $db->fetch_result($result, 0, "ts");  // NULL when no entries in DB
-
-		if($ts) $ts = @strtotime($ts);
-		else $ts = false;
-
-		return [$feed->saveXML(), $ts];
-	}
-
-	private function set_id($id, $url, $ids) {
-		if($id && ! isset($ids[$url])) {
-			Logging::debug("Setting id '$id' for '$url'");
-			$ids[$url] = $id;
-			$this->host->set($this, 'ids', json_encode($ids));
-		}
-	}
-
-	function hook_fetch_feed($feed_data, $fetch_url, $o_id, $feed_id) {
+	function hook_feed_basic_info($basic_info, $fetch_url, $owner_uid, $feed_id) {
 		$url = self::normalize_Insta_user_url($fetch_url);
+		if(! $url || $basic_info) return $basic_info;
 
-		if(! $url || $feed_data) return $feed_data;
-		try { PI\Instagram\Loader::set_meta();}
-		catch (Exception $e) {return '';}
+		Logging::debug("Trying to get basic feed info for '$fetch_url'");
+		$basic_info['site_url'] = $url;
 
-		$ids = $this->host->get($this, 'ids');
-		@$ids = json_decode($ids, true);
-		if($ids) $id = $ids[$url];
-		else $ids = [];
+		if(! $this->user) {
+			try {
+				$this->user = $this->create_ig_user($url);
+			} catch(Exception $e) {}
+		}
+
+		# Try to get data set by earlier hook, or our call above
+		if($this->user) {
+			$title = $this->user->title();
+			$icon_url = $this->user->icon_url();
+			$this->set_id($url, $this->user->id());
+		} else {
+			if($this->title) $title = $this->title;
+			if($this->icon_url) $icon_url = $this->icon_url;
+		}
+
+		if($title) $basic_info['title'] = $title;
+		if($icon_url) self::check_feed_icon($icon_url, $feed_id);
+
+		Logging::debug("Found basic feed info for '$fetch_url': " . json_encode($basic_info));
+
+		return $basic_info;
+	}
+
+
+	protected function create_ig_user($url) {
+		$url_ = $url;
+		$url = self::normalize_Insta_user_url($url);
+		if(! $url) throw new Exception("No instagram user URL: '$url_'");
+
+		$id = $this->get_id($url);
+
+		PI\Instagram\Loader::set_meta();  # may throw Exception
 
 		$calls = ['from_url' => [$url], 'from_deskgram' => [$url]];
 		if($id) $calls = array_merge(['from_id' => [$id, $url]], $calls);
 
-		try {
-			$user = NULL;
+		foreach($calls as $func => $arg) {
+			try {
+				Logging::debug("Calling '$func'");
+				$user = call_user_func_array(['PI\Instagram\UserPage', $func], $arg);
+				if($user) break;
+			} catch(PI\Instagram\UserPrivateException $e) { # TODO | these
+				$this->set_id($url, $e->id());
+				throw $e;
+			} catch(PI\Instagram\NoPostsException $e) {
+				$this->set_id($url, $e->id());
+				throw $e;
+			} catch(Exception $e) {
+				Logging::exception_debug($e, "Got Exception");
+				continue;
+			}
+		}
 
-			foreach($calls as $func => $arg) {
-				try {
-					Logging::debug("Calling '$func'");
-					$user = call_user_func_array(['PI\Instagram\UserPage', $func], $arg);
-					if($user) break;
-				} catch(PI\Instagram\UserPrivateException $e) { # TODO | these
-					throw $e;
-				} catch(PI\Instagram\NoPostsException $e) {
-					throw $e;
-				} catch(Exception $e) {
-					Logging::exception_debug($e, "Got Exception");
-					continue;
-				}
-			}
-			if($user) {
-				$this->user = $user;
-				self::set_id($user->id(), $url, $ids);
-			}
+		if($user) {
+			$this->set_id($url, $user->id());
+			return $user;
+		} else {
+			if($e) throw $e;
 			else {
-				if($e) throw $e;
-				else {
-					Logging::error("Something strange happened for '$fetch_url'");
-					return "";
-				}
+				$s = "Something strange happened for '$url_'";
+				Logging::error($s);
+				throw new Exception($s);
 			}
+		}
+	}
+
+
+	function hook_fetch_feed($feed_data, $fetch_url) {
+		$url = self::normalize_Insta_user_url($fetch_url);
+		if(! $url || $feed_data) return $feed_data;
+
+		try {
+			$this->user = $this->create_ig_user($url);
 		} catch (PI\Instagram\UserPrivateException $e) {
-			self::set_id($e->id(), $url, $ids);
 			$s = "'$url': Set to private";
 			Logging::debug($s);
 			return "<error>$s</error>\n";
 		} catch (PI\Instagram\NoPostsException $e) {
-			self::set_id($e->id(), $url, $ids);
 			$s = "'$url': No Posts.";
 			Logging::error($s);
 			return "<error>$s</error>\n";
@@ -223,14 +265,17 @@ class ff_Instagram extends Plugin
 			return "";
 		}
 
-		list($con, $this->ts) = self::create_xml_icon_stamp($this->user, $feed_id, $this->host->get_dbh());
+		# create feed
+		$feed = new RSSGenerator_Inst\Feed(['link' => $this->user->url(),
+				'title' => $this->user->title(), 'description' => $this->user->description()]);
 
-		return $con;
+		return $feed->saveXML();
 	}
 
-	function hook_feed_fetched($feed_data, $fetch_url, $owner_uid, $feed_id) {
+
+	function hook_feed_fetched($feed_data, $fetch_url) {
 		$url = self::normalize_Insta_user_url($fetch_url);
-		if(! $url || ! is_html($feed_data)) return $feed_data;
+		if(! $url || ! Feeds::is_html($feed_data)) return $feed_data;
 
 		try {
 			$this->user = PI\Instagram\UserPage::from_html($feed_data);
@@ -249,13 +294,37 @@ class ff_Instagram extends Plugin
 			return "<error>'$url': {$e->getMessage()}</error>\n";
 		}
 
-		list($con, $this->ts) = self::create_xml_icon_stamp($this->user, $feed_id, $this->host->get_dbh());
+		# create feed
+		$feed = new RSSGenerator_Inst\Feed(['link' => $this->user->url(),
+				'title' => $this->user->title(), 'description' => $this->user->description()]);
 
-		return $con;
+		return $feed->saveXML();
 	}
 
-	function hook_feed_parsed($rss) {
-		if ( ! self::normalize_Insta_user_url($rss->get_link())) return;
+
+	function hook_feed_parsed($rss, $feed_id) {
+		if ( ! self::normalize_Insta_user_url($rss->get_link()) || ! isset($this->user)) return;
+
+		// We also check here in case of deleted favicon
+		self::check_feed_icon($this->user->icon_url(), $feed_id);
+
+		# check latest entry in DB
+		# TODO use $row["last_modified"] or $row["last_unconditional"] from ttrss_feeds here?
+		$db = $this->host->get_pdo();
+		$sth = $db->prepare("SELECT max(date_entered) AS ts FROM
+				ttrss_entries, ttrss_user_entries WHERE
+				ref_id = id AND feed_id = ?");
+
+		$sth->execute([$feed_id]);
+		$ts = $sth->fetchColumn();
+
+		if($ts) {
+			Logging::debug("Found latest DB entry timestamp: '$ts'");
+			$ts = @strtotime($ts);
+		} else {
+			Logging::debug("No entries in DB.");
+			$ts = false;
+		}
 
 		static $ref;
 		static $p_xpath;
@@ -275,7 +344,7 @@ class ff_Instagram extends Plugin
 		$feed = new RSSGenerator_Inst\Feed(array(), $doc);
 		$items = array();
 
-		foreach(self::generate_Iposts($this->user, $this->ts) as $ar) {
+		foreach(self::generate_Iposts($this->user, $ts) as $ar) {
 			$it = $feed->new_item($ar);
 			$items [] = new FeedItem_RSS($it->get_item(), $doc, $xpath);
 		}

@@ -57,6 +57,8 @@ class FetchException extends Exception{
 
 class Logging {
 	static function debug($msg) {
+		// TODO Depends on ttrss core
+		\Debug::log($msg, \Debug::$LOG_VERBOSE);
 	}
 
 	static function error($msg) {
@@ -65,7 +67,7 @@ class Logging {
 	}
 
 	//TODO make filenames in Trace relative to something?
-	private static function format_exc($e, string $msg=NULL, $trace=true) {
+	private static function format_exc($e, $msg='', $trace=true) {
 		if($msg) $s = "${msg}: ";
 		$s .= $e->getMessage() . "\nIn: '" . $e->getFile() . "' ({$e->getLine()})";
 		if($trace) $s .= "\nTrace:\n" . $e->getTraceAsString();
@@ -73,13 +75,13 @@ class Logging {
 		return $s;
 	}
 
-	static function exception_error(\Exception $e, string $msg=NULL, $trace=True) {
+	static function exception_error(\Exception $e, $msg='', $trace=True) {
 		$s = self::format_exc($e, $msg, $trace);
 		user_error($s, E_USER_ERROR);
 		self::debug($s);
 	}
 
-	static function exception_debug(\Exception $e, string $msg=NULL, $trace=False) {
+	static function exception_debug(\Exception $e, $msg='', $trace=False) {
 		self::debug(self::format_exc($e, $msg, $trace));
 	}
 }
@@ -209,9 +211,12 @@ class Post {
 
 	static function append_media(array $media, DOMElement $node, $muted=TRUE) {
 		$doc = $node->ownerDocument;
+		$c_im = 0;
+		$c_vid = 0;
 		foreach($media as $arr) {
 			list($i_url, $v_url) = $arr;
 			if($v_url) {
+				$c_vid++;
 				$med = $doc->createElement('video');
 				$src = $doc->createElement('source');
 				$src->setAttribute('src', $v_url);
@@ -222,11 +227,14 @@ class Post {
 				if(count($media) < 2) $med->setAttribute('autoplay', '');
 				$med->appendChild($src);
 			} else {
+				$c_im++;
 				$med = $doc->createElement('img');
 				$med->setAttribute('src', $i_url);
 			}
 			$node->appendChild($med);
 		}
+		if($c_im > 1 || $c_vid > 0)
+			Logging::debug("Found '$c_im' image(s)/'$c_vid' video(s)");
 	}
 
 	const marker = "insta_scrap_later"; //must be lower case for DOM
@@ -540,8 +548,6 @@ class Loader{
 		KEEP THIS STABLE!1!
 	*/
 	static function scrap_insta_media($url) {
-
-
 		$media = [];
 
 		$data = self::get_post_data($url);
@@ -845,6 +851,7 @@ class UserPage {
 		$gen = $this->gen;
 		while(True) {
 			$info = $gen->get_info();
+			Logging::debug("Trying to fetch additional posts using '" . json_encode($info) . "'");
 			if(! $info["has_next_page"]) break;  // TODO that could be misleading when key not there
 			try {
 				$json = Loader::fetch_more_user_json($this->id, $info["end_cursor"]);
