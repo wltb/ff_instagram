@@ -484,12 +484,10 @@ class Loader{
 		$url should be a URL to an Instagram video/multi* page (/p/.+),
 		but image only should work as well.
 		Will try very hard to get information, but will log failures if some should occur.
-
-		TODO error reporting is a bit wordy/unnecessary in some cases (404s),
-		but that shouldn't matter too much because it's called only/mostly on fresh stuff.
 	*/
 
 	private static function get_post_data($url) {
+		//TODO globals are empty now?
 		global $fetch_last_error;
 		global $fetch_last_error_code;
 
@@ -505,6 +503,7 @@ class Loader{
 			curl_setopt(self::$ch, CURLOPT_HTTPHEADER, self::$curl_header_keep_alive);
 			$data = self::download_decode($url_);
 		} catch (Exception $e) {
+			if($e->getCode() === 404) throw $e;  // TODO we should check the type of $e
 			$json = fetch_file_contents($url_);
 			if(! $json) user_error("'$fetch_last_error' occured for '$url_'");
 			$data = json_decode($json, true);
