@@ -314,7 +314,8 @@ class Loader{
 	private function __construct($meta) {
 		#self::setup_channel();
 		self::$rhx_gis = $meta["rhx_gis"];
-		if(! self::$rhx_gis) user_error("Meta information missing.");
+		Logging::debug("Setting 'rhx_gis' to '{$meta['rhx_gis']}'");
+		if(! self::$rhx_gis) user_error("Meta information missing: 'rhx_gis'");
 	}
 
 	static function get_instance($meta) {
@@ -322,6 +323,7 @@ class Loader{
 		return self::$instance;
 	}
 
+	//TODO rhx_gis etc is not needed anymore?
 	static function set_meta() {
 		if(self::$rhx_gis) return;
 		self::setup_channel();
@@ -336,6 +338,8 @@ class Loader{
 				return;
 			}
 		}
+
+		if(! self::$rhx_gis) user_error("Meta information missing: 'rhx_gis'");
 	}
 
 
@@ -366,6 +370,8 @@ class Loader{
 			if (defined('_CURL_HTTP_PROXY')) {
 				curl_setopt(self::$ch, CURLOPT_PROXY, _CURL_HTTP_PROXY);
 			}
+
+			curl_setopt(self::$ch, CURLOPT_HTTPHEADER, self::$curl_header_keep_alive);
 		}
 	}
 
@@ -408,10 +414,12 @@ class Loader{
 		$variables = ["id" => $user_id, "first" => $num];
 		if($end_cursor) $variables["after"] = $end_cursor;
 		$variables = json_encode($variables);
+		/*
 		$rhx_gis = self::$rhx_gis;
 		$hash = md5("$rhx_gis:$variables");
 
 		curl_setopt(self::$ch, CURLOPT_HTTPHEADER, array_merge(self::$curl_header_keep_alive, ["X-Instagram-GIS: $hash"]));
+		*/
 
 		$api_url = 'https://www.instagram.com/graphql/query/';
 
@@ -425,6 +433,9 @@ class Loader{
 		self::setup_channel();
 		//var_dump($user_url);
 		$path = parse_url($user_url, PHP_URL_PATH);
+
+		return self::download_decode($user_url . "?__a=1");
+		/*
 		if(preg_match("~^(/[^/]+/)~", $path, $match)) {
 			$rhx_gis = self::$rhx_gis;
 			//var_dump("$rhx_gis:{$match[1]}");
@@ -433,6 +444,9 @@ class Loader{
 
 			return self::download_decode($user_url . "?__a=1");
 		}
+		*/
+	}
+
 	}
 
 	const charset_hack = '<head>
@@ -732,7 +746,7 @@ class UserPage {
 			if($s === 'https://www.instagram.com/accounts/login/') throw new CantTellException();
 			throw new MissingKeyException('["entry_data"]["ProfilePage"][0]["graphql"]["user"]');
 		}
-		Loader::get_instance($meta);
+		#Loader::get_instance($meta);
 		return new self($json);
 	}
 

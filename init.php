@@ -206,7 +206,7 @@ class ff_Instagram extends Plugin {
 
 		$id = $this->get_id($url);
 
-		PI\Instagram\Loader::set_meta();  # may throw Exception
+		#PI\Instagram\Loader::set_meta();  # may throw Exception
 
 		$calls = ['from_url' => [$url], 'from_deskgram' => [$url]];
 		if($id) $calls = array_merge(['from_id' => [$id, $url]], $calls);
