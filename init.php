@@ -359,6 +359,8 @@ class ff_Instagram extends Plugin {
 
 		try {
 			$article['content'] = PI\Instagram\Post::reformat_content($article['content'], $link);
+		} catch (PI\Instagram\ServerSideException $e) {
+			Logging::exception_debug($e, "'$link': Server error");
 		} catch (Exception $e) {
 			Logging::exception_error($e, "Error for '$link'");
 		}

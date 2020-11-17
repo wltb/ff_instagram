@@ -55,6 +55,9 @@ class FetchException extends Exception{
 	}
 }
 
+class ServerSideException extends Exception {}
+
+
 class Logging {
 	static function debug($msg) {
 		// TODO Depends on ttrss core
@@ -401,8 +404,7 @@ class Loader{
 	https://github.com/postaddictme/instagram-php-scraper
 	https://github.com/rarcega/instagram-scraper
 	https://stackoverflow.com/q/49786980
-
-	https://github.com/Snbig/InstaTrack how to get magic ids/hashes
+	https://github.com/faizahmaddae/instagram-php
 
 	TODO make graphql queries more abstract
 	*/
@@ -516,13 +518,19 @@ class Loader{
 			$data = self::download_decode($url_);
 		} catch (Exception $e) {
 			if($e->getCode() === 404) throw $e;  // TODO we should check the type of $e
+
+			$real_url = curl_getinfo(self::$ch, CURLINFO_EFFECTIVE_URL);
+			if($real_url === "https://www.instagram.com/accounts/login/") {
+				throw new ServerSideException("Can't get post information ATM, starting 11/17");
+			}
+
 			$json = fetch_file_contents($url_);
 			if(! $json) user_error("'$fetch_last_error' occured for '$url_'");
 			$data = json_decode($json, true);
 		}
 
 		if(!$data) {//fallback
-			user_error("Couldn't decode json for '$url_', error message '" .
+			Logging::debug("Couldn't decode json for '$url_', error message '" .
 			json_last_error_msg() . "'. Trying to use fallback.");
 
 			# we fail here because the other stuff below depends on this
@@ -534,7 +542,7 @@ class Loader{
 				$data = $json["entry_data"]["PostPage"][0];
 				if(! $data) throw new MissingKeyException('["entry_data"]["PostPage"][0]');
 			} catch (Exception $e) {
-				user_error("Something wrong for '$url': " . $e->getMessage());
+				Logging::debug("Something wrong for '$url': " . $e->getMessage());
 				$data = [];
 			}
 		}
@@ -592,7 +600,7 @@ class Loader{
 		}
 
 		if(! $media) {  // Doesn't work for albums
-			user_error("json scraping doesn't work for '$url'. Using Fallback.");
+			Logging::debug("json scraping doesn't work for '$url'. Using Fallback.");
 			$doc = new DOMDocument();
 			if(! $html) {
 				$html = fetch_file_contents($url);
@@ -685,8 +693,11 @@ class UserPage {
 			$post = $this->posts[0];
 			try {
 				$info = $post->load_owner_info();
+			} catch (ServerSideException $e) {
+				Logging::exception_debug($e, "Tried to get user data from " . $post->url());
+				$info = [];
 			} catch (\Exception $e) {
-				Logging::exception_error($e, "Error trying to load " .  $post->url());
+				Logging::exception_error($e, "Error trying to load " . $post->url());
 				$info = [];
 			}
 
